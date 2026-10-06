@@ -1,5 +1,5 @@
 // Supabase Initalisierung (Eigene Anmeldedaten einsetzen)
-const SUPABASE_URL = 'https://kivrithhtptvjjotkgzr.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://kivrithhtptvjjotkgzr.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpdnJpdGhodHB0dmpqb3RrZ3pyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjgxMjIsImV4cCI6MjEwNjg0NDEyMn0.N86vpqON6XIEYAZjHr7AEd4vJ9DhfG_oDrWRqH8kJdM';
 const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
