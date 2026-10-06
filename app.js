@@ -19,7 +19,7 @@ supabaseClient
   })
   .subscribe();
 
-// 1. Spieler-Registrierung (Multi-User / Kiosk-fähig)
+// 1. Spieler-Registrierung
 async function registerPlayer() {
   const inputEl = document.getElementById('player-name-input');
   if (!inputEl) return;
@@ -230,7 +230,7 @@ async function generateVorrunde() {
   }
 }
 
-// 6. Offene und abgeschlossene Matches laden (mit verlässlicher SVG-Dartboard Grafikeinbindung)
+// 6. Offene und abgeschlossene Matches laden (Sauberes CSS-Board ohne img-Fehler)
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -247,9 +247,6 @@ async function loadMatches() {
   // Offene Matches zuerst anzeigen, beendete nach unten
   matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
 
-  // SVG Dartboard Markup als HTML String
-  const svgMarkup = `<svg class="dartboard-img" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="48" fill="#0b0f19" stroke="#334155" stroke-width="2"/><circle cx="50" cy="50" r="40" fill="none" stroke="#22c55e" stroke-width="4"/><circle cx="50" cy="50" r="28" fill="none" stroke="#ef4444" stroke-width="4"/><circle cx="50" cy="50" r="14" fill="#22c55e"/><circle cx="50" cy="50" r="6" fill="#ef4444"/></svg>`;
-
   let html = '';
   matches.forEach(m => {
     const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
@@ -260,12 +257,11 @@ async function loadMatches() {
     const boardClass = isBoard2 ? 'board-2' : 'board-1';
 
     if (m.is_completed) {
-      // BEENDETES MATCH (mit Bearbeiten-Stift)
+      // BEENDETES MATCH
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
         <div class="match-card completed">
-          <div class="board-badge-container">
-            ${svgMarkup}
+          <div class="css-dartboard">
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
@@ -292,8 +288,7 @@ async function loadMatches() {
       // OFFENES MATCH
       html += `
         <div class="match-card">
-          <div class="board-badge-container">
-            ${svgMarkup}
+          <div class="css-dartboard">
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
