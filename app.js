@@ -457,18 +457,19 @@ async function generateZwischenrunde() {
     return;
   }
 
-  const crossPairs = [];
+  // Alte Zwischenrunden-Spiele löschen, falls bereits vorhanden
+  await supabaseClient.from('matches').delete().eq('phase', 'zwischenrunde');
 
-  // Exakt 1 Match pro Paarung nach Überkreuz-Schema:
-  // 1. A vs 2. B
-  // 1. B vs 2. A
-  // 3. A vs 4. B
-  // 3. B vs 4. A usw.
-  const maxRank = Math.max(statsA.length, statsB.length);
+  const crossPairs = [];
+  const maxRank = Math.min(statsA.length, statsB.length);
+
+  // Überkreuz-Schema: 1. Platz vs 2. Platz der anderen Gruppe
   for (let i = 0; i < maxRank; i += 2) {
+    // 1. A vs 2. B, 3. A vs 4. B etc.
     if (statsA[i] && statsB[i + 1]) {
       crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
     }
+    // 1. B vs 2. A, 3. B vs 4. A etc.
     if (statsB[i] && statsA[i + 1]) {
       crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
     }
@@ -477,6 +478,7 @@ async function generateZwischenrunde() {
   const newMatches = [];
   let matchCounter = 1;
 
+  // Jede Paarung wird GENAU EINMAL als Best-of-3 angelegt
   crossPairs.forEach(pair => {
     newMatches.push({
       phase: 'zwischenrunde',
@@ -511,6 +513,9 @@ async function generateFinals() {
   if (!confirm(`Finals & Platzierungsspiele jetzt starten?`)) {
     return;
   }
+
+  // Alte Finalspiele löschen, falls bereits vorhanden
+  await supabaseClient.from('matches').delete().in('phase', ['finale', 'platz_3']);
 
   const winners = zwMatches.map(m => m.winner_id);
   const losers = zwMatches.map(m => m.winner_id === m.player1_id ? m.player2_id : m.player1_id);
