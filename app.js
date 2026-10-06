@@ -19,7 +19,7 @@ supabaseClient
   })
   .subscribe();
 
-// 1. Spieler-Registrierung (Multi-User-fähig auf einem Gerät)
+// 1. Spieler-Registrierung
 async function registerPlayer() {
   const inputEl = document.getElementById('player-name-input');
   if (!inputEl) return;
@@ -41,7 +41,6 @@ async function registerPlayer() {
       return;
     }
 
-    // Eingabefeld leeren für den nächsten Teilnehmer
     inputEl.value = '';
     inputEl.focus();
 
@@ -97,7 +96,7 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste laden & Tiebreaker berechnen
+// 4. Live-Rangliste laden
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -139,7 +138,7 @@ async function loadRanking() {
         <th>Spieler</th>
         <th>Spiele</th>
         <th>Siege</th>
-        <th>Rest-Pkt</th>
+        <th>Restpunkte</th>
       </tr>
     </thead>
     <tbody>`;
@@ -158,7 +157,7 @@ async function loadRanking() {
   rankingEl.innerHTML = html;
 }
 
-// 5. Vorrunde generieren (Jeder gegen Jeden - 301 Single Out)
+// 5. Ausgewogener Spielplan (Jeder gegen Jeden auf Board 1 & Board 2)
 async function generateVorrunde() {
   const { data: players } = await supabaseClient.from('players').select('*');
   if (!players || players.length < 2) {
@@ -166,29 +165,83 @@ async function generateVorrunde() {
     return;
   }
 
-  if (!confirm(`Vorrunde mit ${players.length} Spielern starten? Es werden alle Duelle generiert.`)) {
+  if (!confirm(`Vorrunde mit ${players.length} Spielern starten? Es wird ein optimierter Spielplan auf 2 Boards generiert.`)) {
     return;
   }
 
   await supabaseClient.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
+  // Algorithmus für ausgewogene Rundenpaarungen (Berger-Tabelle / Round-Robin)
+  let pList = [...players];
+  if (pList.length % 2 !== 0) {
+    pList.push({ id: null, name: 'FREILOS' }); // Dummy bei ungerader Zahl
+  }
+
+  const numPlayers = pList.length;
+  const numRounds = numPlayers - 1;
+  const half = numPlayers / 2;
+
+  const rawRounds = [];
+
+  for (let r = 0; r < numRounds; r++) {
+    const roundMatches = [];
+    for (let i = 0; i < half; i++) {
+      const p1 = pList[i];
+      const p2 = pList[numPlayers - 1 - i];
+
+      if (p1.id && p2.id) {
+        roundMatches.push({
+          player1_id: p1.id,
+          player2_id: p2.id,
+          round_number: r + 1
+        });
+      }
+    }
+    rawRounds.push(roundMatches);
+    // Rotation der Spieler für die nächste Runde (erster Spieler bleibt fix)
+    pList.splice(1, 0, pList.pop());
+  }
+
+  // Zuweisung zu Board 1 & Board 2
   const newMatches = [];
-  for (let i = 0; i < players.length; i++) {
-    for (let j = i + 1; j < players.length; j++) {
+  let matchCounter = 1;
+
+  // Tracken, wie oft jeder Spieler auf Board 1 gespielt hat (für maximale Gleichverteilung)
+  const board1Counts = {};
+  players.forEach(p => board1Counts[p.id] = 0);
+
+  rawRounds.forEach(round => {
+    round.forEach(m => {
+      // Prüfen, wer seltener auf Board 1 war
+      const p1B1 = board1Counts[m.player1_id] || 0;
+      const p2B1 = board1Counts[m.player2_id] || 0;
+
+      let boardName = 'Board 1';
+      if (matchCounter % 2 === 0) {
+        boardName = 'Board 2';
+      } else {
+        board1Counts[m.player1_id] = p1B1 + 1;
+        board1Counts[m.player2_id] = p2B1 + 1;
+      }
+
       newMatches.push({
         phase: 'vorrunde',
-        player1_id: players[i].id,
-        player2_id: players[j].id,
+        round_number: m.round_number,
+        player1_id: m.player1_id,
+        player2_id: m.player2_id,
+        board: boardName,
         is_completed: false
       });
-    }
-  }
+
+      matchCounter++;
+    });
+  });
 
   const { error } = await supabaseClient.from('matches').insert(newMatches);
   if (error) {
     alert('Fehler beim Erstellen der Vorrunde: ' + error.message);
   } else {
-    alert(`Vorrunde mit ${newMatches.length} Spielen erfolgreich gestartet!`);
+    alert(`Vorrunde mit ${newMatches.length} Spielen erfolgreich auf Board 1 & 2 verteilt!`);
     loadMatches();
     loadRanking();
   }
@@ -202,7 +255,7 @@ async function loadMatches() {
   const { data: matches, error } = await supabaseClient
     .from('matches')
     .select('*, p1:player1_id(name), p2:player2_id(name)')
-    .order('updated_at', { ascending: false });
+    .order('created_at', { ascending: true });
 
   if (error || !matches || matches.length === 0) {
     listEl.innerHTML = '<p style="color: var(--text-muted);">Aktuell sind keine Spielpaarungen aktiv.</p>';
@@ -214,13 +267,15 @@ async function loadMatches() {
     const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
     const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
     const phaseTitle = m.phase.toUpperCase();
+    const boardBadge = m.board || 'Board 1';
 
     if (m.is_completed) {
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
-        <div class="match-card" style="opacity: 0.7; border-color: #1e293b;">
+        <div class="match-card" style="opacity: 0.65; border-color: #1e293b;">
           <div class="match-header">
-            <span class="phase-badge">${phaseTitle}</span> — Beendet
+            <span class="phase-badge">${phaseTitle}</span> 
+            <span class="phase-badge" style="background: #475569;">${boardBadge}</span> — Beendet
           </div>
           <div><strong>${p1Name}</strong> vs <strong>${p2Name}</strong></div>
           <div style="font-size: 0.85rem; color: var(--accent); margin-top: 0.3rem;">
@@ -230,20 +285,25 @@ async function loadMatches() {
     } else {
       html += `
         <div class="match-card">
-          <div class="match-header">
-            <span class="phase-badge" style="background: var(--accent); color: #000;">${phaseTitle}</span>
+          <div class="match-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <span class="phase-badge" style="background: var(--accent); color: #000;">${phaseTitle}</span>
+              <span class="phase-badge" style="background: #3b82f6; color: #fff;">${boardBadge}</span>
+            </div>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Runde ${m.round_number || 1}</span>
           </div>
-          <div style="margin-bottom: 0.75rem; font-size: 1.1rem;">
+          
+          <div style="margin: 0.75rem 0; font-size: 1.1rem;">
             <strong>${p1Name}</strong> <span style="color: var(--text-muted);">vs</span> <strong>${p2Name}</strong>
           </div>
           
           <div class="match-inputs">
             <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted);">${p1Name} Restpkt:</label>
+              <label style="font-size: 0.8rem; color: var(--text-muted);">${p1Name} Restpunkte:</label>
               <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
             </div>
             <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted);">${p2Name} Restpkt:</label>
+              <label style="font-size: 0.8rem; color: var(--text-muted);">${p2Name} Restpunkte:</label>
               <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
             </div>
           </div>
