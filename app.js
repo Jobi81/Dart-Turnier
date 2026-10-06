@@ -551,19 +551,32 @@ async function loadMatches() {
   const btnGruppe = document.getElementById('btn-gruppe');
   const btnZwischenrunde = document.getElementById('btn-zwischenrunde');
   const btnFinals = document.getElementById('btn-finals');
+  const btnStats = document.getElementById('btn-stats');
   const statusHint = document.getElementById('admin-status-hint');
 
   const vorrundeMatches = matches.filter(m => m.phase === 'vorrunde');
   const gruppenMatches = matches.filter(m => m.phase === 'gruppe_a' || m.phase === 'gruppe_b');
   const zwischenrundeMatches = matches.filter(m => m.phase === 'zwischenrunde');
+  const finalAndPlacementMatches = matches.filter(m => m.phase === 'finale' || m.phase === 'platz_3' || m.phase.startsWith('platz_'));
 
   const vorrundeDone = vorrundeMatches.length > 0 && vorrundeMatches.every(m => m.is_completed);
   const gruppeDone = gruppenMatches.length > 0 && gruppenMatches.every(m => m.is_completed);
   const zwischenrundeDone = zwischenrundeMatches.length > 0 && zwischenrundeMatches.every(m => m.is_completed);
+  const finalsDone = finalAndPlacementMatches.length > 0 && finalAndPlacementMatches.every(m => m.is_completed);
 
   if (btnGruppe) btnGruppe.disabled = !vorrundeDone;
   if (btnZwischenrunde) btnZwischenrunde.disabled = !gruppeDone;
   if (btnFinals) btnFinals.disabled = !zwischenrundeDone;
+
+  if (btnStats) {
+    if (finalsDone) {
+      btnStats.style.display = 'block';
+      btnStats.disabled = false;
+    } else {
+      btnStats.style.display = 'none';
+      btnStats.disabled = true;
+    }
+  }
 
   if (statusHint) {
     if (!vorrundeDone && vorrundeMatches.length > 0) {
@@ -578,8 +591,10 @@ async function loadMatches() {
       statusHint.innerText = `Gruppenphase beendet! Bereit für Schritt 3 (Zwischenrunde).`;
     } else if (!zwischenrundeDone && zwischenrundeMatches.length > 0) {
       statusHint.innerText = `Zwischenrunde läuft noch.`;
-    } else if (zwischenrundeDone) {
+    } else if (zwischenrundeDone && !finalsDone) {
       statusHint.innerText = `Zwischenrunde beendet! Bereit für Schritt 4 (Finals & Platzierungsspiele).`;
+    } else if (finalsDone) {
+      statusHint.innerText = `🏆 Alle Spiele beendet! Das Turnier ist abgeschlossen.`;
     }
   }
 
@@ -731,6 +746,181 @@ async function loadMatches() {
   listEl.innerHTML = html;
 }
 
+// 10. OFFISIELLEN TURNIERSTATISTIK-REPORT ERZEUGEN
+async function openStatistics() {
+  const { data: players } = await supabaseClient.from('players').select('*');
+  const { data: matches } = await supabaseClient.from('matches').select('*, p1:player1_id(name), p2:player2_id(name)');
+
+  if (!players || !matches) return;
+
+  // Gesamtrangliste errechnen
+  const playerStats = {};
+  players.forEach(p => {
+    playerStats[p.id] = {
+      name: p.name,
+      matchesPlayed: 0,
+      matchesWon: 0,
+      legsWon: 0,
+      legsLost: 0,
+      totalRestPoints: 0,
+      finalRank: 99
+    };
+  });
+
+  // Finale Platzierungen aus Finalspielen ableiten
+  matches.forEach(m => {
+    if (!m.is_completed) return;
+    const p1 = m.player1_id;
+    const p2 = m.player2_id;
+    const winner = m.winner_id;
+    const loser = (winner === p1) ? p2 : p1;
+
+    if (playerStats[p1]) {
+      playerStats[p1].matchesPlayed++;
+      playerStats[p1].totalRestPoints += (m.p1_rest_points || 0);
+      if (winner === p1) playerStats[p1].matchesWon++;
+      playerStats[p1].legsWon += (m.p1_legs || (winner === p1 ? 1 : 0));
+      playerStats[p1].legsLost += (m.p2_legs || (winner === p1 ? 0 : 1));
+    }
+    if (playerStats[p2]) {
+      playerStats[p2].matchesPlayed++;
+      playerStats[p2].totalRestPoints += (m.p2_rest_points || 0);
+      if (winner === p2) playerStats[p2].matchesWon++;
+      playerStats[p2].legsWon += (m.p2_legs || (winner === p2 ? 1 : 0));
+      playerStats[p2].legsLost += (m.p1_legs || (winner === p2 ? 0 : 1));
+    }
+
+    // Exakte Platzierungen
+    if (m.phase === 'finale') {
+      if (playerStats[winner]) playerStats[winner].finalRank = 1;
+      if (playerStats[loser]) playerStats[loser].finalRank = 2;
+    } else if (m.phase === 'platz_3') {
+      if (playerStats[winner]) playerStats[winner].finalRank = 3;
+      if (playerStats[loser]) playerStats[loser].finalRank = 4;
+    } else if (m.phase && m.phase.startsWith('platz_')) {
+      const rankNum = parseInt(m.phase.replace('platz_', ''), 10);
+      if (playerStats[winner]) playerStats[winner].finalRank = rankNum;
+      if (playerStats[loser]) playerStats[loser].finalRank = rankNum + 1;
+    }
+  });
+
+  const statsList = Object.values(playerStats);
+  statsList.sort((a, b) => a.finalRank - b.finalRank || b.matchesWon - a.matchesWon || a.totalRestPoints - b.totalRestPoints);
+
+  let html = `
+    <h3 style="color: var(--accent); margin-bottom: 0.5rem;">🎯 Abschließende Abschlusstabelle</h3>
+    <table class="table" style="margin-bottom: 1.5rem;">
+      <thead>
+        <tr>
+          <th>Rang</th>
+          <th>Spieler</th>
+          <th>Spiele (S/N)</th>
+          <th>Legs (+/-)</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  statsList.forEach((s, idx) => {
+    const rank = s.finalRank <= players.length ? s.finalRank : idx + 1;
+    let badge = `${rank}.`;
+    if (rank === 1) badge = '🥇 1.';
+    if (rank === 2) badge = '🥈 2.';
+    if (rank === 3) badge = '🥉 3.';
+
+    html += `
+      <tr>
+        <td><strong>${badge}</strong></td>
+        <td><span class="clickable-player" onclick="showPlayerDetail('${s.name}')">${s.name}</span></td>
+        <td>${s.matchesWon} / ${s.matchesPlayed - s.matchesWon}</td>
+        <td>${s.legsWon} : ${s.legsLost}</td>
+      </tr>`;
+  });
+
+  html += `</tbody></table>
+    <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center;">Klicke auf einen Spielernamen, um die individuelle Detailstatistik aufzurufen.</p>`;
+
+  document.getElementById('stats-modal-body').innerHTML = html;
+  toggleStatistics(true);
+}
+
+// 11. Individuelle Spieler-Statistik im Modal anzeigen
+async function showPlayerDetail(playerName) {
+  const { data: players } = await supabaseClient.from('players').select('*');
+  const player = players.find(p => p.name === playerName);
+  if (!player) return;
+
+  const { data: matches } = await supabaseClient
+    .from('matches')
+    .select('*, p1:player1_id(name), p2:player2_id(name)')
+    .or(`player1_id.eq.${player.id},player2_id.eq.${player.id}`);
+
+  let won = 0;
+  let lost = 0;
+  let legsW = 0;
+  let legsL = 0;
+  let restSum = 0;
+
+  let matchRows = '';
+  matches.forEach(m => {
+    if (!m.is_completed) return;
+    const isP1 = m.player1_id === player.id;
+    const opponent = isP1 ? (m.p2 ? m.p2.name : 'Unbekannt') : (m.p1 ? m.p1.name : 'Unbekannt');
+    const isWinner = m.winner_id === player.id;
+
+    if (isWinner) won++; else lost++;
+
+    const myLegs = isP1 ? (m.p1_legs || 0) : (m.p2_legs || 0);
+    const oppLegs = isP1 ? (m.p2_legs || 0) : (m.p1_legs || 0);
+    legsW += myLegs;
+    legsL += oppLegs;
+
+    const myRest = isP1 ? (m.p1_rest_points || 0) : (m.p2_rest_points || 0);
+    restSum += myRest;
+
+    matchRows += `
+      <tr>
+        <td><span style="font-size: 0.75rem; background: var(--card-inner); padding: 0.2rem 0.4rem; border-radius: 4px;">${m.phase.toUpperCase()}</span></td>
+        <td>vs. ${opponent}</td>
+        <td><strong style="color: ${isWinner ? 'var(--accent)' : '#ef4444'}">${isWinner ? 'GEWONNEN' : 'VERLOREN'}</strong></td>
+      </tr>`;
+  });
+
+  let html = `
+    <h3 style="color: #38bdf8; margin-bottom: 0.2rem;">👤 Spielerprofil: ${player.name}</h3>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 1rem 0;">
+      <div style="background: var(--card-inner); padding: 0.6rem; border-radius: 8px; text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted);">Siege / Niederl.</div>
+        <div style="font-size: 1.1rem; font-weight: bold; color: var(--accent);">${won} : ${lost}</div>
+      </div>
+      <div style="background: var(--card-inner); padding: 0.6rem; border-radius: 8px; text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted);">Legs (+ / -)</div>
+        <div style="font-size: 1.1rem; font-weight: bold;">${legsW} : ${legsL}</div>
+      </div>
+      <div style="background: var(--card-inner); padding: 0.6rem; border-radius: 8px; text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted);">Restpunkte ges.</div>
+        <div style="font-size: 1.1rem; font-weight: bold; color: #facc15;">${restSum}</div>
+      </div>
+    </div>
+
+    <h4 style="color: var(--accent); margin: 1rem 0 0.5rem 0;">🗂️ Gespielte Partien</h4>
+    <table class="table" style="font-size: 0.85rem;">
+      <thead>
+        <tr>
+          <th>Phase</th>
+          <th>Gegner</th>
+          <th>Ergebnis</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${matchRows || '<tr><td colspan="3">Keine abgeschlossenen Spiele.</td></tr>'}
+      </tbody>
+    </table>
+
+    <button style="margin-top: 1rem; background: #334155; color: #fff;" onclick="openStatistics()">← Zurück zur Gesamttabelle</button>`;
+
+  document.getElementById('stats-modal-body').innerHTML = html;
+}
+
 // Prüft live, ob Leg 3 bei 2:0 nicht mehr benötigt wird
 function checkBo3Status(matchId) {
   const l1p1 = parseInt(document.getElementById(`bo3_l1_p1_${matchId}`)?.value, 10);
@@ -797,7 +987,7 @@ async function submitBo3Result(matchId, p1Id, p2Id) {
   }
 }
 
-// 10. Ergebnis 1-Leg eintragen
+// 12. Ergebnis 1-Leg eintragen
 async function submitResult(matchId, p1Id, p2Id) {
   const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
   const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
@@ -837,7 +1027,7 @@ async function submitResult(matchId, p1Id, p2Id) {
   }
 }
 
-// 11. Match zur Korrektur freischalten
+// 13. Match zur Korrektur freischalten
 async function reopenMatch(matchId) {
   const { error } = await supabaseClient.from('matches').update({
     is_completed: false,
