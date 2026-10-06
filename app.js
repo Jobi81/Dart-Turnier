@@ -169,7 +169,7 @@ async function getPhaseStats(phaseName) {
   const { data: players } = await supabaseClient.from('players').select('*');
   const { data: phaseMatches } = await supabaseClient.from('matches').select('*').eq('phase', phaseName).eq('is_completed', true);
 
-  const stats = players.map(p => {
+  const stats = players ? players.map(p => {
     let points = 0;
     let restPoints = 0;
 
@@ -184,7 +184,7 @@ async function getPhaseStats(phaseName) {
     });
 
     return { id: p.id, name: p.name, points, restPoints };
-  });
+  }) : [];
 
   return stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
 }
@@ -203,7 +203,7 @@ async function loadRanking() {
   }
 
   const phasesInDb = [...new Set(allMatches?.map(m => m.phase) || [])];
-  const hasGroupPhase = phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b') || phasesInDb.includes('zwischenrunde') || phasesInDb.includes('finale') || phasesInDb.includes('platz_3') || phasesInDb.some(p => p.startsWith('platz_'));
+  const hasGroupPhase = phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b') || phasesInDb.includes('zwischenrunde') || phasesInDb.includes('finale') || phasesInDb.some(p => p && p.startsWith('platz_'));
 
   if (hasGroupPhase) {
     const statsA = await getGroupRankings('gruppe_a');
@@ -449,9 +449,8 @@ async function generateFinals() {
     return;
   }
 
-  // Alle alten Final- und Platzierungsspiele entfernen
   const { data: allMatches } = await supabaseClient.from('matches').select('phase');
-  const finalPhases = [...new Set(allMatches?.map(m => m.phase).filter(p => p === 'finale' || p.startsWith('platz_')))];
+  const finalPhases = [...new Set(allMatches?.map(m => m.phase).filter(p => p === 'finale' || (p && p.startsWith('platz_'))))];
   if (finalPhases.length > 0) {
     await supabaseClient.from('matches').delete().in('phase', finalPhases);
   }
@@ -459,13 +458,11 @@ async function generateFinals() {
   const newMatches = [];
   let boardToggle = 1;
 
-  // Paarungen der Zwischenrunde paarweise auswerten (Duell 0&1 = Halbfinal-Duelle, Duell 2&3 = Duelle um Platz 5-8 etc.)
   for (let i = 0; i < zwMatches.length; i += 2) {
     const m1 = zwMatches[i];
     const m2 = zwMatches[i + 1];
 
     if (i === 0) {
-      // HALBFINAL-ERGEBNISSE -> Finale & Platz 3
       const winner1 = m1.winner_id;
       const loser1 = m1.winner_id === m1.player1_id ? m1.player2_id : m1.player1_id;
 
@@ -473,7 +470,6 @@ async function generateFinals() {
         const winner2 = m2.winner_id;
         const loser2 = m2.winner_id === m2.player1_id ? m2.player2_id : m2.player1_id;
 
-        // 🏆 FINALE (Platz 1 & 2)
         newMatches.push({
           phase: 'finale',
           round_number: 1,
@@ -484,7 +480,6 @@ async function generateFinals() {
         });
         boardToggle++;
 
-        // 🥉 SPIEL UM PLATZ 3
         newMatches.push({
           phase: 'platz_3',
           round_number: 1,
@@ -496,7 +491,6 @@ async function generateFinals() {
         boardToggle++;
       }
     } else {
-      // PLATZIERUNGSDUELLE (Platz 5, Platz 7, Platz 9, ...)
       const winner1 = m1.winner_id;
       const loser1 = m1.winner_id === m1.player1_id ? m1.player2_id : m1.player1_id;
 
@@ -504,8 +498,8 @@ async function generateFinals() {
         const winner2 = m2.winner_id;
         const loser2 = m2.winner_id === m2.player1_id ? m2.player2_id : m2.player1_id;
 
-        const posWinner = i + 3; // z.B. i=2 -> Platz 5
-        const posLoser = i + 5;  // z.B. i=2 -> Platz 7
+        const posWinner = i + 3;
+        const posLoser = i + 5;
 
         newMatches.push({
           phase: `platz_${posWinner}`,
@@ -554,7 +548,6 @@ async function loadMatches() {
     return;
   }
 
-  // FREISCHALTUNGS-LOGIK FÜR ADMIN-BUTTONS
   const btnGruppe = document.getElementById('btn-gruppe');
   const btnZwischenrunde = document.getElementById('btn-zwischenrunde');
   const btnFinals = document.getElementById('btn-finals');
@@ -601,17 +594,17 @@ async function loadMatches() {
   matches.forEach(m => {
     const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
     const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
-    const isBestOf3 = ['zwischenrunde', 'finale'].includes(m.phase) || m.phase.startsWith('platz_');
+    const isBestOf3 = ['zwischenrunde', 'finale'].includes(m.phase) || (m.phase && m.phase.startsWith('platz_'));
     
-    let phaseTitle = m.phase.toUpperCase();
+    let phaseTitle = m.phase ? m.phase.toUpperCase() : 'SPIEL';
     if (m.phase === 'gruppe_a') phaseTitle = '🔵 GRUPPE A';
     if (m.phase === 'gruppe_b') phaseTitle = '🟡 GRUPPE B';
     if (m.phase === 'zwischenrunde') phaseTitle = 'ZWISCHENRUNDE (BEST OF 3)';
     if (m.phase === 'finale') phaseTitle = '🏆 FINALE (BEST OF 3)';
     if (m.phase === 'platz_3') phaseTitle = '🥉 SPIEL UM PLATZ 3';
-    if (m.phase.startsWith('platz_') && m.phase !== 'platz_3') {
+    if (m.phase && m.phase.startsWith('platz_') && m.phase !== 'platz_3') {
       const pNum = m.phase.replace('platz_', '');
-      phaseTitle = `🎖️ SPIEL UM PLATZ ${pNum}`;
+      phaseTitle = `🎖️ SPIEL UM PLATZ ${pNum} (BEST OF 3)`;
     }
 
     const isBoard2 = (m.board === 'Board 2');
@@ -631,8 +624,8 @@ async function loadMatches() {
 
           <div class="match-content">
             <div class="match-header-info">
-              <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
-              <button onclick="reopenMatch('${m.id}')" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #3d372e; color: #fff;" title="Ergebnis korrigieren">
+              <span>${phaseTitle}</span>
+              <button onclick="reopenMatch('${m.id}')" class="edit-btn-pos" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #3d372e; color: #fff;" title="Ergebnis korrigieren">
                 ✏️ Bearbeiten
               </button>
             </div>
@@ -650,7 +643,6 @@ async function loadMatches() {
         </div>`;
     } else {
       if (isBestOf3) {
-        // BEST-OF-3 EINGABE-LAYOUT (Leg 1, Leg 2, Leg 3)
         html += `
           <div class="match-card">
             <div class="board-badge-container">
@@ -698,7 +690,6 @@ async function loadMatches() {
             </div>
           </div>`;
       } else {
-        // STANDARD 1-LEG EINGABE (Vorrunde & Gruppenphase)
         html += `
           <div class="match-card">
             <div class="board-badge-container">
