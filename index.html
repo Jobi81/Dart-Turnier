@@ -173,7 +173,7 @@
 
     /* MATCH CARD MIT SAND-/BEIGE-HINTERGRUND */
     .match-card {
-      background-color: #3b342b; /* Edler Sand-/Beige-Dunkelton */
+      background-color: #3b342b;
       border: 1px solid #6b5e50;
       border-radius: 12px;
       padding: 1.25rem;
@@ -238,7 +238,7 @@
       margin-bottom: 0.8rem;
       font-size: 1.1rem;
       font-weight: 800;
-      color: #facc15; /* Gold/Gelb */
+      color: #facc15;
       text-align: center;
       letter-spacing: 0.05em;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
@@ -295,7 +295,7 @@
     }
     .modal-content {
       background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-      max-width: 550px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 1.5rem;
+      max-width: 650px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 1.5rem;
       box-shadow: 0 12px 32px rgba(0,0,0,0.6); position: relative;
     }
     .modal-close { position: absolute; top: 1rem; right: 1rem; background: transparent; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; width: auto; margin: 0; padding: 0; }
@@ -304,6 +304,9 @@
     .rules-section h4 { margin: 0 0 0.4rem 0; color: var(--accent); }
     .rules-section p, .rules-section ul { margin: 0; font-size: 0.92rem; color: #cbd5e1; line-height: 1.4; }
     .rules-section ul { padding-left: 1.2rem; }
+
+    .clickable-player { color: #38bdf8; cursor: pointer; text-decoration: underline; }
+    .clickable-player:hover { color: #7dd3fc; }
   </style>
 </head>
 <body>
@@ -354,6 +357,7 @@
         <button id="btn-gruppe" onclick="generateGruppenphase()" style="background: #3b82f6; color: #fff;" disabled>2. Gruppenphase A & B generieren</button>
         <button id="btn-zwischenrunde" onclick="generateZwischenrunde()" style="background: #8b5cf6; color: #fff;" disabled>3. Zwischenrunde generieren (Best of 3)</button>
         <button id="btn-finals" onclick="generateFinals()" style="background: #ec4899; color: #fff;" disabled>4. Finals & Platzierungsspiele generieren</button>
+        <button id="btn-stats" onclick="openStatistics()" style="background: #f59e0b; color: #000; display: none;" disabled>📊 Abschließende Turnierstatistik</button>
       </div>
       <p id="admin-status-hint" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; margin-bottom: 0; text-align: center;">
         Schließe alle Spiele der aktuellen Phase ab, um die nächste Phase freizuschalten.
@@ -410,11 +414,24 @@
     </div>
   </div>
 
+  <!-- Pop-up Fenster für die Turnierstatistik -->
+  <div id="stats-modal" class="modal-overlay" onclick="if(event.target === this) toggleStatistics(false)">
+    <div class="modal-content" style="max-width: 750px;">
+      <button class="modal-close" onclick="toggleStatistics(false)">&times;</button>
+      <h2 style="color: #f59e0b; margin-bottom: 1rem; text-align: center;">🏆 Offizielle Turnierstatistik & Auswertung</h2>
+      <div id="stats-modal-body">Lade Statistik...</div>
+      <button style="margin-top: 1.5rem; background: #f59e0b; color: #000;" onclick="toggleStatistics(false)">Statistik schließen</button>
+    </div>
+  </div>
+
   <script>
     function toggleRules(show) {
       document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
     }
+    function toggleStatistics(show) {
+      document.getElementById('stats-modal').style.display = show ? 'flex' : 'none';
+    }
   </script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=25"></script>
 </body>
 </html>
