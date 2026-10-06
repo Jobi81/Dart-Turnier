@@ -128,7 +128,7 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste ODER Live-Turnierbaum laden
+// 4. Live-Rangliste laden (Behält Gruppen-Tabellen auch in Phase 3 & 4 bei)
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -144,55 +144,10 @@ async function loadRanking() {
   const completedMatches = allMatches?.filter(m => m.is_completed) || [];
   const phasesInDb = [...new Set(allMatches?.map(m => m.phase) || [])];
 
-  const hasKnockoutPhase = phasesInDb.includes('zwischenrunde') || phasesInDb.includes('finale') || phasesInDb.includes('platz_3');
+  const hasGroupPhase = phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b') || phasesInDb.includes('zwischenrunde') || phasesInDb.includes('finale') || phasesInDb.includes('platz_3');
 
-  if (hasKnockoutPhase) {
-    // --- LIVE-TURNIERBAUM (BRACKET) AB PHASE 3 ---
-    const zwMatches = allMatches.filter(m => m.phase === 'zwischenrunde');
-    const finMatch = allMatches.find(m => m.phase === 'finale');
-    const p3Match = allMatches.find(m => m.phase === 'platz_3');
-
-    function renderBracketMatch(m) {
-      if (!m) return `<div class="bracket-match"><div class="bracket-player"><span>TBD</span></div><div class="bracket-player"><span>TBD</span></div></div>`;
-      const p1Win = m.is_completed && m.winner_id === m.player1_id;
-      const p2Win = m.is_completed && m.winner_id === m.player2_id;
-      return `
-        <div class="bracket-match">
-          <div class="bracket-player ${p1Win ? 'winner' : ''}">
-            <span>${m.p1 ? m.p1.name : 'TBD'}</span>
-            <span>${m.is_completed ? (m.p1_legs || 0) : ''}</span>
-          </div>
-          <div class="bracket-player ${p2Win ? 'winner' : ''}">
-            <span>${m.p2 ? m.p2.name : 'TBD'}</span>
-            <span>${m.is_completed ? (m.p2_legs || 0) : ''}</span>
-          </div>
-        </div>`;
-    }
-
-    let treeHTML = `<h4 style="color: var(--accent); margin: 0 0 1rem 0; text-align: center;">🌳 Live-Turnierbaum (K.o.-Phase)</h4>`;
-    treeHTML += `<div class="bracket-container">`;
-
-    // Zwischenrunde / Halbfinals
-    treeHTML += `<div class="bracket-round">
-      <div class="bracket-round-title">Zwischenrunde</div>`;
-    zwMatches.forEach(m => {
-      treeHTML += renderBracketMatch(m);
-    });
-    treeHTML += `</div>`;
-
-    // Finale & Platz 3
-    treeHTML += `<div class="bracket-round">
-      <div class="bracket-round-title">🏆 Finale</div>
-      ${renderBracketMatch(finMatch)}
-      <div class="bracket-round-title" style="margin-top: 1rem;">🥉 Spiel um Platz 3</div>
-      ${renderBracketMatch(p3Match)}
-    </div>`;
-
-    treeHTML += `</div>`;
-    rankingEl.innerHTML = treeHTML;
-
-  } else if (phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b')) {
-    // --- GRUPPENPHASE TABELLEN ---
+  if (hasGroupPhase) {
+    // --- GRUPPENPHASE TABELLEN (Bleiben auch ab Zwischenrunde sichtbar) ---
     const groupAMatches = allMatches.filter(m => m.phase === 'gruppe_a');
     const groupBMatches = allMatches.filter(m => m.phase === 'gruppe_b');
 
@@ -443,7 +398,7 @@ async function generateGruppenphase() {
   }
 }
 
-// 7. STUFE 3: Zwischenrunde (Exakt 1 Überkreuz-Match pro Paarung, Best of 3)
+// 7. STUFE 3: Zwischenrunde (Exakt 1 Überkreuz-Match pro Spieler, Best of 3)
 async function generateZwischenrunde() {
   const statsA = await getPhaseStats('gruppe_a');
   const statsB = await getPhaseStats('gruppe_b');
@@ -457,28 +412,35 @@ async function generateZwischenrunde() {
     return;
   }
 
-  // Alte Zwischenrunden-Spiele löschen, falls bereits vorhanden
+  // Alte Zwischenrunden-Spiele vorher gründlich entfernen
   await supabaseClient.from('matches').delete().eq('phase', 'zwischenrunde');
 
   const crossPairs = [];
-  const maxRank = Math.min(statsA.length, statsB.length);
 
-  // Überkreuz-Schema: 1. Platz vs 2. Platz der anderen Gruppe
-  for (let i = 0; i < maxRank; i += 2) {
-    // 1. A vs 2. B, 3. A vs 4. B etc.
-    if (statsA[i] && statsB[i + 1]) {
-      crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
-    }
-    // 1. B vs 2. A, 3. B vs 4. A etc.
-    if (statsB[i] && statsA[i + 1]) {
-      crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+  // Exakte 1-zu-1 Überkreuz-Paarung:
+  // 1. Platz Gruppe A vs. 2. Platz Gruppe B
+  // 1. Platz Gruppe B vs. 2. Platz Gruppe A
+  // 3. Platz Gruppe A vs. 4. Platz Gruppe B
+  // 3. Platz Gruppe B vs. 4. Platz Gruppe A usw.
+  const minLen = Math.min(statsA.length, statsB.length);
+  for (let idx = 0; idx < minLen; idx++) {
+    if (idx % 2 === 0) {
+      // Unbekannter/Gerader Index: A vs B
+      if (statsA[idx] && statsB[idx + 1]) {
+        crossPairs.push({ p1: statsA[idx], p2: statsB[idx + 1] });
+      }
+    } else {
+      // Ungerader Index: B vs A
+      if (statsB[idx - 1] && statsA[idx]) {
+        crossPairs.push({ p1: statsB[idx - 1], p2: statsA[idx] });
+      }
     }
   }
 
   const newMatches = [];
   let matchCounter = 1;
 
-  // Jede Paarung wird GENAU EINMAL als Best-of-3 angelegt
+  // Jede Paarung wird exakt EINMAL als Best-of-3 angelegt
   crossPairs.forEach(pair => {
     newMatches.push({
       phase: 'zwischenrunde',
