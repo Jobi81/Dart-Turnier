@@ -5,8 +5,6 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Supabase Client initialisieren
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let currentPlayer = localStorage.getItem('dart_player_name') || null;
-
 // Realtime Subscriber einrichten
 supabaseClient
   .channel('turnier_updates')
@@ -21,7 +19,7 @@ supabaseClient
   })
   .subscribe();
 
-// 1. Spieler-Registrierung
+// 1. Spieler-Registrierung (Multi-User-fähig auf einem Gerät)
 async function registerPlayer() {
   const inputEl = document.getElementById('player-name-input');
   if (!inputEl) return;
@@ -38,21 +36,17 @@ async function registerPlayer() {
       .insert([{ name: nameInput }])
       .select();
 
-    if (error && !error.message.includes('duplicate')) {
-      console.warn('Hinweis beim Anlegen:', error.message);
+    if (error) {
+      alert('Fehler oder Name bereits eingetragen: ' + error.message);
+      return;
     }
 
-    localStorage.setItem('dart_player_name', nameInput);
-    currentPlayer = nameInput;
-
-    const authSec = document.getElementById('auth-section');
-    if (authSec) authSec.style.display = 'none';
-
-    alert(`Willkommen beim Turnier, ${nameInput}!`);
+    // Eingabefeld leeren für den nächsten Teilnehmer
+    inputEl.value = '';
+    inputEl.focus();
 
     loadRegisteredPlayers();
     loadRanking();
-    loadMatches();
 
   } catch (err) {
     console.error('Fehler bei der Anmeldung:', err);
@@ -60,7 +54,7 @@ async function registerPlayer() {
   }
 }
 
-// 2. Angemeldete Teilnehmer auflisten (NEU)
+// 2. Angemeldete Teilnehmer auflisten
 async function loadRegisteredPlayers() {
   const listEl = document.getElementById('registered-players-list');
   const countEl = document.getElementById('player-count');
@@ -88,7 +82,7 @@ async function loadRegisteredPlayers() {
   listEl.innerHTML = html;
 }
 
-// 3. Teilnehmer löschen (falls versehentlich angemeldet)
+// 3. Teilnehmer löschen
 async function deletePlayer(playerId, playerName) {
   if (!confirm(`Möchtest du "${playerName}" wirklich aus der Teilnehmerliste entfernen?`)) {
     return;
@@ -98,12 +92,6 @@ async function deletePlayer(playerId, playerName) {
   if (error) {
     alert('Fehler beim Löschen: ' + error.message);
   } else {
-    if (currentPlayer === playerName) {
-      localStorage.removeItem('dart_player_name');
-      currentPlayer = null;
-      const authSec = document.getElementById('auth-section');
-      if (authSec) authSec.style.display = 'block';
-    }
     loadRegisteredPlayers();
     loadRanking();
   }
@@ -157,10 +145,9 @@ async function loadRanking() {
     <tbody>`;
 
   stats.forEach((s, i) => {
-    const isMe = s.name === currentPlayer ? ' (Du)' : '';
     html += `<tr>
       <td><strong>${i + 1}</strong></td>
-      <td>${s.name}${isMe}</td>
+      <td>${s.name}</td>
       <td>${s.played}</td>
       <td><strong style="color: var(--accent);">${s.points}</strong></td>
       <td>${s.restPoints}</td>
@@ -314,10 +301,6 @@ async function submitResult(matchId, p1Id, p2Id) {
 
 // Initialer Aufruf beim Laden der Seite
 document.addEventListener('DOMContentLoaded', () => {
-  if (currentPlayer) {
-    const authSec = document.getElementById('auth-section');
-    if (authSec) authSec.style.display = 'none';
-  }
   loadRegisteredPlayers();
   loadRanking();
   loadMatches();
