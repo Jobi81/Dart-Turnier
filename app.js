@@ -379,7 +379,7 @@ async function generateGruppenphase() {
   }
 }
 
-// 7. STUFE 3: Zwischenrunde (Exakt 1 Überkreuz-Match pro Spieler, Best of 3)
+// 7. STUFE 3: Zwischenrunde (Strikte überkreuz-Duelle zwischen Gruppe A & B, Best of 3)
 async function generateZwischenrunde() {
   const statsA = await getGroupRankings('gruppe_a');
   const statsB = await getGroupRankings('gruppe_b');
@@ -389,21 +389,29 @@ async function generateZwischenrunde() {
     return;
   }
 
-  if (!confirm(`Zwischenrunde (Überkreuz-Duelle Best of 3) jetzt starten?`)) {
+  if (!confirm(`Zwischenrunde (Gruppenübergreifende Überkreuz-Duelle Best of 3) jetzt starten?`)) {
     return;
   }
 
   await supabaseClient.from('matches').delete().eq('phase', 'zwischenrunde');
 
   const crossPairs = [];
-  const maxPlayers = Math.max(statsA.length, statsB.length);
+  const maxPairs = Math.max(statsA.length, statsB.length);
 
-  for (let i = 0; i < maxPlayers; i += 2) {
+  // Paare exakt überkreuz bilden: 1A vs 2B, 1B vs 2A, 3A vs 4B, 3B vs 4A, etc.
+  for (let i = 0; i < maxPairs; i += 2) {
     if (statsA[i] && statsB[i + 1]) {
       crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
     }
-    if (statsA[i + 1] && statsB[i]) {
-      crossPairs.push({ p1: statsA[i + 1], p2: statsB[i] });
+    if (statsB[i] && statsA[i + 1]) {
+      crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+    }
+
+    if (statsA[i + 2] && statsB[i + 3]) {
+      crossPairs.push({ p1: statsA[i + 2], p2: statsB[i + 3] });
+    }
+    if (statsB[i + 2] && statsA[i + 3]) {
+      crossPairs.push({ p1: statsB[i + 2], p2: statsA[i + 3] });
     }
   }
 
@@ -426,7 +434,7 @@ async function generateZwischenrunde() {
   if (error) {
     alert('Fehler beim Erstellen der Zwischenrunde: ' + error.message);
   } else {
-    alert(`Zwischenrunde mit genau ${newMatches.length} Überkreuz-Duellen gestartet!`);
+    alert(`Zwischenrunde mit genau ${newMatches.length} gruppenübergreifenden Duellen gestartet!`);
     loadMatches();
     loadRanking();
   }
@@ -619,7 +627,7 @@ async function loadMatches() {
     if (m.phase === 'platz_3') phaseTitle = '🥉 SPIEL UM PLATZ 3';
     if (m.phase && m.phase.startsWith('platz_') && m.phase !== 'platz_3') {
       const pNum = m.phase.replace('platz_', '');
-      phaseTitle = `🎖️ SPIEL UM PLATZ ${pNum} (BEST OF 3)`;
+      phaseTitle = `🎖️️ SPIEL UM PLATZ ${pNum} (BEST OF 3)`;
     }
 
     const isBoard2 = (m.board === 'Board 2');
@@ -746,7 +754,7 @@ async function loadMatches() {
   listEl.innerHTML = html;
 }
 
-// 10. OFFISIELLEN TURNIERSTATISTIK-REPORT ERZEUGEN
+// 10. OFFIZIELLEN TURNIERSTATISTIK-REPORT ERZEUGEN
 async function openStatistics() {
   const { data: players } = await supabaseClient.from('players').select('*');
   const { data: matches } = await supabaseClient.from('matches').select('*, p1:player1_id(name), p2:player2_id(name)');
