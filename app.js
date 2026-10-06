@@ -32,7 +32,6 @@ async function registerPlayer() {
   }
 
   try {
-    // Versuch, den Spieler in Supabase anzulegen
     const { data, error } = await supabaseClient
       .from('players')
       .insert([{ name: nameInput }])
@@ -42,7 +41,6 @@ async function registerPlayer() {
       console.warn('Hinweis beim Anlegen:', error.message);
     }
 
-    // Name lokal im Browser speichern
     localStorage.setItem('dart_player_name', nameInput);
     currentPlayer = nameInput;
 
@@ -61,7 +59,6 @@ async function registerPlayer() {
 }
 
 // 2. Live-Rangliste laden & Tiebreaker berechnen
-// Regel: 1. Siege/Punkte (höher besser), 2. Restpunkte (niedriger besser)
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -94,9 +91,6 @@ async function loadRanking() {
     return { id: p.id, name: p.name, points, restPoints, played };
   });
 
-  // Sortierung nach Turnierregeln:
-  // 1. Meiste Siege (Punkte)
-  // 2. WENIGER Restpunkte
   stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
 
   if (stats.length === 0) {
@@ -143,7 +137,6 @@ async function generateVorrunde() {
     return;
   }
 
-  // Bestehende Matches zurücksetzen
   await supabaseClient.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
   const newMatches = [];
@@ -160,4 +153,125 @@ async function generateVorrunde() {
 
   const { error } = await supabaseClient.from('matches').insert(newMatches);
   if (error) {
-    alert('Fehler beim Erstellen der Vorrunde: ' + error
+    alert('Fehler beim Erstellen der Vorrunde: ' + error.message);
+  } else {
+    alert(`Vorrunde mit ${newMatches.length} Spielen erfolgreich gestartet!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 4. Offene und abgeschlossene Matches laden
+async function loadMatches() {
+  const listEl = document.getElementById('matches-list');
+  if (!listEl) return;
+
+  const { data: matches, error } = await supabaseClient
+    .from('matches')
+    .select('*, p1:player1_id(name), p2:player2_id(name)')
+    .order('updated_at', { ascending: false });
+
+  if (error || !matches || matches.length === 0) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Aktuell sind keine Spielpaarungen aktiv.</p>';
+    return;
+  }
+
+  let html = '';
+  matches.forEach(m => {
+    const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
+    const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
+    const phaseTitle = m.phase.toUpperCase();
+
+    if (m.is_completed) {
+      const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
+      html += `
+        <div class="match-card" style="opacity: 0.7; border-color: #1e293b;">
+          <div class="match-header">
+            <span class="phase-badge">${phaseTitle}</span> — Beendet
+          </div>
+          <div><strong>${p1Name}</strong> vs <strong>${p2Name}</strong></div>
+          <div style="font-size: 0.85rem; color: var(--accent); margin-top: 0.3rem;">
+            🏆 Sieger: ${winnerName} | Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0}
+          </div>
+        </div>`;
+    } else {
+      html += `
+        <div class="match-card">
+          <div class="match-header">
+            <span class="phase-badge" style="background: var(--accent); color: #000;">${phaseTitle}</span>
+          </div>
+          <div style="margin-bottom: 0.75rem; font-size: 1.1rem;">
+            <strong>${p1Name}</strong> <span style="color: var(--text-muted);">vs</span> <strong>${p2Name}</strong>
+          </div>
+          
+          <div class="match-inputs">
+            <div>
+              <label style="font-size: 0.8rem; color: var(--text-muted);">${p1Name} Restpkt:</label>
+              <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
+            </div>
+            <div>
+              <label style="font-size: 0.8rem; color: var(--text-muted);">${p2Name} Restpkt:</label>
+              <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
+            </div>
+          </div>
+
+          <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.5rem;">
+            Ergebnis Speichern
+          </button>
+        </div>`;
+    }
+  });
+
+  listEl.innerHTML = html;
+}
+
+// 5. Ergebnis eintragen
+async function submitResult(matchId, p1Id, p2Id) {
+  const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
+  const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
+
+  const p1Rest = parseInt(p1RestInput.value, 10);
+  const p2Rest = parseInt(p2RestInput.value, 10);
+
+  if (isNaN(p1Rest) || isNaN(p2Rest)) {
+    alert('Bitte gib für beide Spieler die verbliebenen Restpunkte ein (Gewinner = 0)!');
+    return;
+  }
+
+  if (p1Rest !== 0 && p2Rest !== 0) {
+    alert('Der Gewinner muss genau 0 Restpunkte haben!');
+    return;
+  }
+
+  if (p1Rest === 0 && p2Rest === 0) {
+    alert('Es kann nur einen Gewinner mit 0 Restpunkten geben!');
+    return;
+  }
+
+  const winnerId = p1Rest === 0 ? p1Id : p2Id;
+
+  const { error } = await supabaseClient.from('matches').update({
+    winner_id: winnerId,
+    p1_rest_points: p1Rest,
+    p2_rest_points: p2Rest,
+    is_completed: true,
+    updated_at: new Date()
+  }).eq('id', matchId);
+
+  if (error) {
+    alert('Fehler beim Speichern: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
+
+// Initialer Aufruf beim Laden der Seite
+document.addEventListener('DOMContentLoaded', () => {
+  if (currentPlayer) {
+    const authSec = document.getElementById('auth-section');
+    if (authSec) authSec.style.display = 'none';
+  }
+  loadRanking();
+  loadMatches();
+});
