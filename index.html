@@ -29,7 +29,6 @@
       overflow-x: hidden;
     }
 
-    /* Animierte fliegende Darts im Hintergrund */
     .dart-bg {
       position: fixed;
       top: 0;
@@ -147,7 +146,7 @@
       padding: 1rem;
       margin-bottom: 1rem;
       display: grid;
-      grid-template-columns: 85px 1fr;
+      grid-template-columns: 80px 1fr;
       gap: 1rem;
       align-items: center;
     }
@@ -157,29 +156,22 @@
       border-color: #1e293b;
     }
 
-    /* Grafisches Dartboard Badge */
-    .board-badge-container {
-      position: relative;
-      width: 85px;
-      height: 85px;
+    /* Rein visuelles CSS-Dartboard mit großer Ziffer */
+    .css-dartboard {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #ef4444 0% 12%, #22c55e 12% 28%, #1e293b 28% 55%, #ef4444 55% 68%, #0b0f19 68% 100%);
+      border: 3px solid #334155;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
       display: flex;
       justify-content: center;
       align-items: center;
-    }
-
-    .dartboard-img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+      position: relative;
     }
 
     .board-number-overlay {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 2.2rem;
+      font-size: 2.3rem;
       font-weight: 900;
       line-height: 1;
       text-shadow: 
@@ -187,8 +179,8 @@
          2px -2px 0 #000,
         -2px  2px 0 #000,
          2px  2px 0 #000,
-         0 0 10px rgba(0,0,0,0.9);
-      pointer-events: none;
+         0 0 12px rgba(0,0,0,0.9);
+      z-index: 2;
     }
 
     .board-number-overlay.board-1 { color: var(--board1-color); }
@@ -350,6 +342,6 @@
       document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
     }
   </script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
