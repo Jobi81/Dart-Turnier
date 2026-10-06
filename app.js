@@ -458,18 +458,25 @@ async function generateZwischenrunde() {
   }
 
   const crossPairs = [];
-  const totalRanked = Math.max(statsA.length, statsB.length);
 
-  // Überkreuz-Prinzip (1. A vs 2. B, 1. B vs 2. A, 3. A vs 4. B...)
-  for (let i = 0; i < totalRanked; i += 2) {
-    if (statsA[i] && statsB[i + 1]) crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
-    if (statsB[i] && statsA[i + 1]) crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+  // Exakt 1 Match pro Paarung nach Überkreuz-Schema:
+  // 1. A vs 2. B
+  // 1. B vs 2. A
+  // 3. A vs 4. B
+  // 3. B vs 4. A usw.
+  const maxRank = Math.max(statsA.length, statsB.length);
+  for (let i = 0; i < maxRank; i += 2) {
+    if (statsA[i] && statsB[i + 1]) {
+      crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
+    }
+    if (statsB[i] && statsA[i + 1]) {
+      crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+    }
   }
 
   const newMatches = [];
   let matchCounter = 1;
 
-  // Jede Paarung wird GENAU EINMAL als K.o.-Match angelegt
   crossPairs.forEach(pair => {
     newMatches.push({
       phase: 'zwischenrunde',
