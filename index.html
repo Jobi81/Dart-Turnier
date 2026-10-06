@@ -171,24 +171,24 @@
     }
     .player-chip .remove-btn { color: #ef4444; cursor: pointer; font-weight: bold; font-size: 1.1rem; line-height: 1; }
 
-    /* MATCH CARD MIT DEUTLICHER HINTERGRUNDFARBE */
+    /* MATCH CARD MIT SAND-/BEIGE-HINTERGRUND */
     .match-card {
-      background-color: var(--card-inner);
-      border: 1px solid var(--border);
+      background-color: #3b342b; /* Edler Sand-/Beige-Dunkelton */
+      border: 1px solid #6b5e50;
       border-radius: 12px;
-      padding: 1rem;
+      padding: 1.25rem;
       margin-bottom: 1rem;
       display: grid;
       grid-template-columns: 85px 1fr;
       gap: 1rem;
       align-items: center;
-      box-shadow: inset 0 0 10px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
     }
 
     .match-card.completed {
-      opacity: 0.75;
-      border-color: #2e2a24;
-      background-color: #12100e;
+      opacity: 0.8;
+      background-color: #26211c;
+      border-color: #4a4035;
     }
 
     .board-badge-container {
@@ -230,13 +230,26 @@
 
     .match-content { width: 100%; }
 
+    /* PHASENTITEL GRÖSSER & MITTIG */
     .match-header-info {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
-      margin-bottom: 0.5rem;
-      font-size: 0.8rem;
-      color: var(--text-muted);
+      margin-bottom: 0.8rem;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #facc15; /* Gold/Gelb */
+      text-align: center;
+      letter-spacing: 0.05em;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      position: relative;
+    }
+
+    .edit-btn-pos {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
     }
 
     .vs-grid {
@@ -383,15 +396,13 @@
           <li>Sieger Gruppe A vs. Zweiter Gruppe B</li>
           <li>Sieger Gruppe B vs. Zweiter Gruppe A</li>
           <li>Dritter A vs. Vierter B & Dritter B vs. Vierter A</li>
-          <li>Fünfter A vs. Sechster B & Fünfter B vs. Sechster A</li>
         </ul>
       </div>
 
       <div class="rules-section">
         <h4>4. Finals & Platzierungsspiele</h4>
         <ul>
-          <li><strong>FINALE:</strong> Gewinner der Halbfinals im Modus <strong>301 Double Out – Best of 3</strong>.</li>
-          <li><strong>Platz 3, 5, 7, 9...:</strong> Alle weiteren Duelle im Modus <strong>301 Single Out – Best of 3</strong>.</li>
+          <li><strong>FINALE & PLATZIERUNGSSPIELE:</strong> Alle Duelle (Finale, Platz 3, Platz 5, Platz 7 etc.) im Modus <strong>Best of 3</strong>.</li>
         </ul>
       </div>
 
@@ -404,6 +415,6 @@
       document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
     }
   </script>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=23"></script>
 </body>
 </html>
