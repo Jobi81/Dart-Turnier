@@ -144,6 +144,31 @@
     .table th, .table td { padding: 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
     .table th { color: var(--text-muted); font-size: 0.85rem; }
 
+    /* Teilnehmer-Chips */
+    .player-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .player-chip {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .player-chip .remove-btn {
+      color: #ef4444;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
     /* Modal / Pop-up Fenster für Regeln */
     .modal-overlay {
       position: fixed;
@@ -223,6 +248,12 @@
       <button onclick="registerPlayer()">Am Turnier teilnehmen</button>
     </div>
 
+    <!-- Angemeldete Teilnehmer (NEU) -->
+    <div id="registered-players-section" class="card">
+      <h2>👥 Angemeldete Teilnehmer (<span id="player-count">0</span>)</h2>
+      <div id="registered-players-list" class="player-list">Lade Teilnehmer...</div>
+    </div>
+
     <!-- Admin / Steuerung -->
     <div id="admin-section" class="card">
       <h2>Turnier-Steuerung</h2>
@@ -288,6 +319,6 @@
       document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
     }
   </script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
