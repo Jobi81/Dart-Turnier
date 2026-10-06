@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎯 Dart-Turnier Manager</title>
+  <title>🎯 Kalkopen World Darts Championship 2027</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --bg: #0f172a;
+      --bg: #0b0f19;
       --card: #1e293b;
       --accent: #22c55e;
       --accent-hover: #16a34a;
@@ -15,24 +15,108 @@
       --text-muted: #94a3b8;
       --border: #334155;
     }
+    
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
+      background-color: var(--bg);
       color: var(--text);
       margin: 0;
       padding: 1rem;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
     }
-    .container { max-width: 650px; margin: 0 auto; }
+
+    /* Animierte fliegende Darts im Hintergrund */
+    .dart-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .dart-icon {
+      position: absolute;
+      font-size: 1.8rem;
+      opacity: 0.15;
+      animation: flyDart 12s linear infinite;
+    }
+
+    .dart-icon:nth-child(1) { top: 15%; left: -10%; animation-delay: 0s; animation-duration: 14s; }
+    .dart-icon:nth-child(2) { top: 45%; left: -10%; animation-delay: 3s; animation-duration: 11s; }
+    .dart-icon:nth-child(3) { top: 75%; left: -10%; animation-delay: 6s; animation-duration: 16s; }
+    .dart-icon:nth-child(4) { top: 30%; left: -10%; animation-delay: 9s; animation-duration: 13s; }
+
+    @keyframes flyDart {
+      0% {
+        transform: translateX(0) translateY(0) rotate(45deg);
+        opacity: 0;
+      }
+      10% { opacity: 0.2; }
+      90% { opacity: 0.2; }
+      100% {
+        transform: translateX(120vw) translateY(-30vh) rotate(45deg);
+        opacity: 0;
+      }
+    }
+
+    .container { 
+      max-width: 650px; 
+      margin: 0 auto; 
+      position: relative; 
+      z-index: 1; 
+    }
+
     .card {
       background: var(--card);
       border-radius: 12px;
       padding: 1.25rem;
       margin-bottom: 1rem;
       border: 1px solid var(--border);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      backdrop-filter: blur(4px);
     }
+
     h1, h2, h3 { margin-top: 0; }
-    .header-title { text-align: center; color: var(--accent); margin-bottom: 1.5rem; }
+    .header-title { 
+      text-align: center; 
+      color: var(--accent); 
+      margin-bottom: 0.5rem;
+      font-size: 1.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+    }
+
+    .header-actions {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn-rules {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn-rules:hover {
+      background: var(--accent);
+      color: #000;
+    }
+
     input, button, select {
       width: 100%;
       padding: 0.75rem;
@@ -44,46 +128,93 @@
       box-sizing: border-box;
       margin-bottom: 0.5rem;
     }
+
     button {
       background: var(--accent);
       color: #000;
       font-weight: bold;
       border: none;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, transform 0.1s;
     }
-    button:hover { background: var(--accent-hover); }
-    .btn-secondary {
-      background: #475569;
-      color: #fff;
-    }
-    .btn-secondary:hover { background: #334155; }
+
+    button:active { transform: scale(0.98); }
+
     .table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
     .table th, .table td { padding: 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
     .table th { color: var(--text-muted); font-size: 0.85rem; }
-    .match-card {
-      background: #0f172a;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+
+    /* Modal / Pop-up Fenster für Regeln */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
       padding: 1rem;
-      margin-bottom: 0.75rem;
+      box-sizing: border-box;
     }
-    .match-header { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; }
-    .match-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.5rem 0; }
-    .phase-badge {
-      display: inline-block;
-      background: #334155;
-      padding: 0.25rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+
+    .modal-content {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 550px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+      position: relative;
     }
+
+    .modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+      width: auto;
+      margin: 0;
+      padding: 0;
+    }
+
+    .rules-section {
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+
+    .rules-section:last-child { border-bottom: none; }
+    .rules-section h4 { margin: 0 0 0.4rem 0; color: var(--accent); }
+    .rules-section p, .rules-section ul { margin: 0; font-size: 0.92rem; color: #cbd5e1; line-height: 1.4; }
+    .rules-section ul { padding-left: 1.2rem; }
   </style>
 </head>
 <body>
+
+  <!-- Animierte Darts im Hintergrund -->
+  <div class="dart-bg">
+    <div class="dart-icon">🎯</div>
+    <div class="dart-icon">🎯</div>
+    <div class="dart-icon">🎯</div>
+    <div class="dart-icon">🎯</div>
+  </div>
+
   <div class="container">
-    <h1 class="header-title">🎯 Dart-Turnier 2026</h1>
+    <h1 class="header-title">🎯 Kalkopen World Darts Championship 2027</h1>
+    <div class="header-actions">
+      <button class="btn-rules" onclick="toggleRules(true)">📖 Spielregeln anzeigen</button>
+    </div>
     
     <!-- Login / Registrierung -->
     <div id="auth-section" class="card">
@@ -113,6 +244,50 @@
     </div>
   </div>
 
+  <!-- Pop-up Fenster für die Spielregeln -->
+  <div id="rules-modal" class="modal-overlay" onclick="if(event.target === this) toggleRules(false)">
+    <div class="modal-content">
+      <button class="modal-close" onclick="toggleRules(false)">&times;</button>
+      <h2 style="color: var(--accent); margin-bottom: 1rem;">🎯 Turnierregeln & Modus</h2>
+      
+      <div class="rules-section">
+        <h4>1. Vorrunde (Setzphase)</h4>
+        <p>Jeder spielt gegen jeden im Modus <strong>301 Single Out (1 Leg)</strong>. Der Gewinner erhält 1 Punkt. Der Verlierer trägt seine Restpunkte ein. Bei Punktgleichheit entscheidet die niedrigere Gesamtrestpunktzahl.</p>
+      </div>
+
+      <div class="rules-section">
+        <h4>2. Gruppenphase (Gruppe A & B)</h4>
+        <p>Nach der Vorrunde werden alle Teilnehmer abwechselnd nach Platzierung aufgeteilt (Platz 1 → Gruppe A, Platz 2 → Gruppe B, Platz 3 → Gruppe A usw.). Es wird erneut Jeder gegen Jeden in den Gruppen gespielt (301 Single Out, 1 Leg).</p>
+      </div>
+
+      <div class="rules-section">
+        <h4>3. Zwischenrunde (Überkreuz-Duelle)</h4>
+        <p>Gespielt wird im Modus <strong>301 Single Out – Best of 3</strong>:</p>
+        <ul>
+          <li>Sieger Gruppe A vs. Zweiter Gruppe B</li>
+          <li>Sieger Gruppe B vs. Zweiter Gruppe A</li>
+          <li>Dritter A vs. Vierter B & Dritter B vs. Vierter A</li>
+          <li>Fünfter A vs. Sechster B & Fünfter B vs. Sechster A</li>
+        </ul>
+      </div>
+
+      <div class="rules-section">
+        <h4>4. Finals & Platzierungsspiele</h4>
+        <ul>
+          <li><strong>FINALE:</strong> Gewinner der Halbfinals im Modus <strong>301 Double Out – Best of 3</strong>.</li>
+          <li><strong>Platz 3, 5, 7, 9...:</strong> Alle weiteren Duelle im Modus <strong>301 Single Out – Best of 3</strong>.</li>
+        </ul>
+      </div>
+
+      <button style="margin-top: 1rem;" onclick="toggleRules(false)">Schließen</button>
+    </div>
+  </div>
+
+  <script>
+    function toggleRules(show) {
+      document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
+    }
+  </script>
   <script src="app.js"></script>
 </body>
 </html>
