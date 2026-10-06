@@ -5,7 +5,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Supabase Client initialisieren
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Realtime Subscriber einrichten für sofortige Live-Updates
+// Realtime Subscriber einrichten
 supabaseClient
   .channel('turnier_updates')
   .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
@@ -230,7 +230,7 @@ async function generateVorrunde() {
   }
 }
 
-// 6. Offene und abgeschlossene Matches laden (Sauberes CSS-Board ohne img-Fehler)
+// 6. Offene und abgeschlossene Matches laden (nutzt exakt Dart_board.png von GitHub)
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -244,7 +244,6 @@ async function loadMatches() {
     return;
   }
 
-  // Offene Matches zuerst anzeigen, beendete nach unten
   matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
 
   let html = '';
@@ -261,14 +260,15 @@ async function loadMatches() {
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
         <div class="match-card completed">
-          <div class="css-dartboard">
+          <div class="board-badge-container">
+            <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
           <div class="match-content">
             <div class="match-header-info">
               <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
-              <button onclick="reopenMatch('${m.id}')" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #475569; color: #fff;" title="Ergebnis korrigieren">
+              <button onclick="reopenMatch('${m.id}')" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #3d372e; color: #fff;" title="Ergebnis korrigieren">
                 ✏️ Bearbeiten
               </button>
             </div>
@@ -279,7 +279,7 @@ async function loadMatches() {
               <div class="player-title">${p2Name}</div>
             </div>
 
-            <div style="font-size: 0.9rem; color: var(--accent); margin-top: 0.4rem; text-align: center; background: #0b0f19; padding: 0.4rem; border-radius: 6px;">
+            <div style="font-size: 0.9rem; color: var(--accent); margin-top: 0.4rem; text-align: center; background: var(--card); padding: 0.4rem; border-radius: 6px; border: 1px solid var(--border);">
               🏆 Sieger: <strong>${winnerName}</strong> (Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0})
             </div>
           </div>
@@ -288,7 +288,8 @@ async function loadMatches() {
       // OFFENES MATCH
       html += `
         <div class="match-card">
-          <div class="css-dartboard">
+          <div class="board-badge-container">
+            <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
@@ -380,7 +381,7 @@ async function reopenMatch(matchId) {
   }
 }
 
-// Initialer Aufruf beim Laden der Seite
+// Initialer Aufruf beim Seitenstart
 document.addEventListener('DOMContentLoaded', () => {
   loadRegisteredPlayers();
   loadRanking();
