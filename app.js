@@ -128,7 +128,7 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste laden
+// 4. Live-Rangliste laden (Exakt gefilterte Gruppen A & B nebeneinander)
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -143,10 +143,37 @@ async function loadRanking() {
 
   const phasesInDb = [...new Set(matches?.map(m => m.phase) || [])];
 
-  function renderTableForPhase(phaseName, title, filteredPlayers = players) {
-    const phaseMatches = matches?.filter(m => m.phase === phaseName) || [];
+  // Vorrunden-Platzierung ermitteln für die Gruppen-Zuordnung
+  const vorrundeMatches = matches?.filter(m => m.phase === 'vorrunde') || [];
+  const vrStats = players.map(p => {
+    let points = 0;
+    let restPoints = 0;
+    vorrundeMatches.forEach(m => {
+      if (m.player1_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p1_rest_points || 0);
+      } else if (m.player2_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p2_rest_points || 0);
+      }
+    });
+    return { id: p.id, name: p.name, points, restPoints };
+  });
 
-    const stats = filteredPlayers.map(p => {
+  vrStats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+
+  const playerIdsA = vrStats.filter((_, idx) => idx % 2 === 0).map(p => p.id);
+  const playerIdsB = vrStats.filter((_, idx) => idx % 2 !== 0).map(p => p.id);
+
+  function buildTableHTML(phaseName, title, allowedPlayerIds = null) {
+    const phaseMatches = matches?.filter(m => m.phase === phaseName) || [];
+    
+    let targetPlayers = players;
+    if (allowedPlayerIds) {
+      targetPlayers = players.filter(p => allowedPlayerIds.includes(p.id));
+    }
+
+    const stats = targetPlayers.map(p => {
       let points = 0;
       let restPoints = 0;
       let played = 0;
@@ -168,18 +195,19 @@ async function loadRanking() {
 
     stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
 
-    let html = `<h4 style="color: var(--accent); margin: 1rem 0 0.5rem 0;">${title}</h4>`;
-    html += `<table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Spieler</th>
-          <th>Spiele</th>
-          <th>Siege</th>
-          <th>Restpkt</th>
-        </tr>
-      </thead>
-      <tbody>`;
+    let html = `<div class="group-box">
+      <h4 style="color: var(--accent); margin: 0 0 0.5rem 0;">${title}</h4>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Spieler</th>
+            <th>Sp.</th>
+            <th>Siege</th>
+            <th>Restp.</th>
+          </tr>
+        </thead>
+        <tbody>`;
 
     stats.forEach((s, i) => {
       html += `<tr>
@@ -191,16 +219,18 @@ async function loadRanking() {
       </tr>`;
     });
 
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
     return html;
   }
 
   if (phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b')) {
-    let html = renderTableForPhase('gruppe_a', 'Gruppe A Rangliste');
-    html += renderTableForPhase('gruppe_b', 'Gruppe B Rangliste');
+    let html = `<div class="groups-container-grid">`;
+    html += buildTableHTML('gruppe_a', 'Gruppe A Rangliste', playerIdsA);
+    html += buildTableHTML('gruppe_b', 'Gruppe B Rangliste', playerIdsB);
+    html += `</div>`;
     rankingEl.innerHTML = html;
   } else {
-    rankingEl.innerHTML = renderTableForPhase('vorrunde', 'Vorrunde Live-Rangliste');
+    rankingEl.innerHTML = buildTableHTML('vorrunde', 'Vorrunde Live-Rangliste');
   }
 }
 
@@ -283,7 +313,7 @@ async function generateGruppenphase() {
     else gruppeB.push(p);
   });
 
-  if (!confirm(`Gruppenphase A & B starten?\n\nGruppe A:\n${gruppeA.map((g,i)=>`${i+1}.${g.name}`).join('\n')}\n\nGruppe B:\n${gruppeB.map((g,i)=>`${i+1}.${g.name}`).join('\n')}`)) {
+  if (!confirm(`Gruppenphase A & B starten?\n\nGruppe A (${gruppeA.length} Spieler):\n${gruppeA.map((g,i)=>`${i+1}.${g.name}`).join('\n')}\n\nGruppe B (${gruppeB.length} Spieler):\n${gruppeB.map((g,i)=>`${i+1}.${g.name}`).join('\n')}`)) {
     return;
   }
 
@@ -348,7 +378,6 @@ async function generateZwischenrunde() {
   const crossPairs = [];
   const minLength = Math.min(statsA.length, statsB.length);
 
-  // Überkreuz: 1. A vs 2. B, 1. B vs 2. A, 3. A vs 4. B etc.
   for (let i = 0; i < minLength; i += 2) {
     if (statsA[i] && statsB[i + 1]) crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
     if (statsB[i] && statsA[i + 1]) crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
@@ -392,13 +421,11 @@ async function generateFinals() {
     return;
   }
 
-  // Gewinner Halbfinals ins Finale
   const winners = zwMatches.map(m => m.winner_id);
   const losers = zwMatches.map(m => m.winner_id === m.player1_id ? m.player2_id : m.player1_id);
 
   const newMatches = [];
 
-  // FINALE
   if (winners.length >= 2) {
     newMatches.push({
       phase: 'finale',
@@ -410,7 +437,6 @@ async function generateFinals() {
     });
   }
 
-  // Spiel um Platz 3
   if (losers.length >= 2) {
     newMatches.push({
       phase: 'platz_3',
@@ -446,7 +472,7 @@ async function loadMatches() {
     return;
   }
 
-  // --- FREISCHALTUNGS-LOGIK FÜR ADMIN-BUTTONS ---
+  // FREISCHALTUNGS-LOGIK FÜR ADMIN-BUTTONS
   const btnGruppe = document.getElementById('btn-gruppe');
   const btnZwischenrunde = document.getElementById('btn-zwischenrunde');
   const btnFinals = document.getElementById('btn-finals');
