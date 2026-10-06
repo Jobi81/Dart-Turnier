@@ -128,7 +128,70 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste laden (Behält Gruppen-Tabellen auch in Phase 3 & 4 bei)
+// Helper: Berechnet Rangliste einer spezifischen Gruppe/Phase präzise
+async function getGroupRankings(phaseName) {
+  const { data: phaseMatches } = await supabaseClient
+    .from('matches')
+    .select('*, p1:player1_id(id, name), p2:player2_id(id, name)')
+    .eq('phase', phaseName);
+
+  if (!phaseMatches || phaseMatches.length === 0) return [];
+
+  // Alle eindeutigen Spieler dieser spezifischen Gruppe ermitteln
+  const playerMap = new Map();
+  phaseMatches.forEach(m => {
+    if (m.p1 && !playerMap.has(m.p1.id)) playerMap.set(m.p1.id, { id: m.p1.id, name: m.p1.name, points: 0, restPoints: 0, played: 0 });
+    if (m.p2 && !playerMap.has(m.p2.id)) playerMap.set(m.p2.id, { id: m.p2.id, name: m.p2.name, points: 0, restPoints: 0, played: 0 });
+  });
+
+  // Statistiken auswerten
+  phaseMatches.filter(m => m.is_completed).forEach(m => {
+    const p1 = playerMap.get(m.player1_id);
+    const p2 = playerMap.get(m.player2_id);
+
+    if (p1) {
+      p1.played++;
+      if (m.winner_id === m.player1_id) p1.points += 1;
+      else p1.restPoints += (m.p1_rest_points || 0);
+    }
+    if (p2) {
+      p2.played++;
+      if (m.winner_id === m.player2_id) p2.points += 1;
+      else p2.restPoints += (m.p2_rest_points || 0);
+    }
+  });
+
+  const stats = Array.from(playerMap.values());
+  stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+  return stats;
+}
+
+// Helper für allgemeine Phasenergebnisse (z.B. Vorrunde)
+async function getPhaseStats(phaseName) {
+  const { data: players } = await supabaseClient.from('players').select('*');
+  const { data: phaseMatches } = await supabaseClient.from('matches').select('*').eq('phase', phaseName).eq('is_completed', true);
+
+  const stats = players.map(p => {
+    let points = 0;
+    let restPoints = 0;
+
+    phaseMatches?.forEach(m => {
+      if (m.player1_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p1_rest_points || 0);
+      } else if (m.player2_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p2_rest_points || 0);
+      }
+    });
+
+    return { id: p.id, name: p.name, points, restPoints };
+  });
+
+  return stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+}
+
+// 4. Live-Rangliste laden
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -141,45 +204,14 @@ async function loadRanking() {
     return;
   }
 
-  const completedMatches = allMatches?.filter(m => m.is_completed) || [];
   const phasesInDb = [...new Set(allMatches?.map(m => m.phase) || [])];
-
   const hasGroupPhase = phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b') || phasesInDb.includes('zwischenrunde') || phasesInDb.includes('finale') || phasesInDb.includes('platz_3');
 
   if (hasGroupPhase) {
-    // --- GRUPPENPHASE TABELLEN (Bleiben auch ab Zwischenrunde sichtbar) ---
-    const groupAMatches = allMatches.filter(m => m.phase === 'gruppe_a');
-    const groupBMatches = allMatches.filter(m => m.phase === 'gruppe_b');
+    const statsA = await getGroupRankings('gruppe_a');
+    const statsB = await getGroupRankings('gruppe_b');
 
-    const playerIdsA = [...new Set(groupAMatches.flatMap(m => [m.player1_id, m.player2_id]))];
-    const playerIdsB = [...new Set(groupBMatches.flatMap(m => [m.player1_id, m.player2_id]))];
-
-    function buildTableHTML(phaseName, title, allowedPlayerIds) {
-      const phaseCompletedMatches = completedMatches.filter(m => m.phase === phaseName);
-      const targetPlayers = players.filter(p => allowedPlayerIds.includes(p.id));
-
-      const stats = targetPlayers.map(p => {
-        let points = 0;
-        let restPoints = 0;
-        let played = 0;
-
-        phaseCompletedMatches.forEach(m => {
-          if (m.player1_id === p.id) {
-            played++;
-            if (m.winner_id === p.id) points += 1;
-            else restPoints += (m.p1_rest_points || 0);
-          } else if (m.player2_id === p.id) {
-            played++;
-            if (m.winner_id === p.id) points += 1;
-            else restPoints += (m.p2_rest_points || 0);
-          }
-        });
-
-        return { id: p.id, name: p.name, points, restPoints, played };
-      });
-
-      stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
-
+    function buildTableHTML(title, stats) {
       let html = `<div class="group-box">
         <h4 style="color: var(--accent); margin: 0 0 0.5rem 0;">${title}</h4>
         <table class="table">
@@ -209,36 +241,14 @@ async function loadRanking() {
     }
 
     let html = `<div class="groups-container-grid">`;
-    html += buildTableHTML('gruppe_a', 'Gruppe A Rangliste', playerIdsA);
-    html += buildTableHTML('gruppe_b', 'Gruppe B Rangliste', playerIdsB);
+    html += buildTableHTML('Gruppe A Rangliste', statsA);
+    html += buildTableHTML('Gruppe B Rangliste', statsB);
     html += `</div>`;
     rankingEl.innerHTML = html;
 
   } else {
-    // --- VORRUNDE TABELLE ---
-    const phaseCompletedMatches = completedMatches.filter(m => m.phase === 'vorrunde');
-    const stats = players.map(p => {
-      let points = 0;
-      let restPoints = 0;
-      let played = 0;
-
-      phaseCompletedMatches.forEach(m => {
-        if (m.player1_id === p.id) {
-          played++;
-          if (m.winner_id === p.id) points += 1;
-          else restPoints += (m.p1_rest_points || 0);
-        } else if (m.player2_id === p.id) {
-          played++;
-          if (m.winner_id === p.id) points += 1;
-          else restPoints += (m.p2_rest_points || 0);
-        }
-      });
-
-      return { id: p.id, name: p.name, points, restPoints, played };
-    });
-
-    stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
-
+    // Vorrunde Tabelle
+    const stats = await getPhaseStats('vorrunde');
     let html = `<div class="group-box">
       <h4 style="color: var(--accent); margin: 0 0 0.5rem 0;">Vorrunde Live-Rangliste</h4>
       <table class="table">
@@ -246,7 +256,6 @@ async function loadRanking() {
           <tr>
             <th>#</th>
             <th>Spieler</th>
-            <th>Sp.</th>
             <th>Siege</th>
             <th>Restp.</th>
           </tr>
@@ -257,7 +266,6 @@ async function loadRanking() {
       html += `<tr>
         <td><strong>${i + 1}</strong></td>
         <td>${s.name}</td>
-        <td>${s.played}</td>
         <td><strong style="color: var(--accent);">${s.points}</strong></td>
         <td>${s.restPoints}</td>
       </tr>`;
@@ -310,32 +318,7 @@ async function generateVorrunde() {
   }
 }
 
-// Helper: Berechnet Rangliste einer Phase
-async function getPhaseStats(phaseName) {
-  const { data: players } = await supabaseClient.from('players').select('*');
-  const { data: phaseMatches } = await supabaseClient.from('matches').select('*').eq('phase', phaseName).eq('is_completed', true);
-
-  const stats = players.map(p => {
-    let points = 0;
-    let restPoints = 0;
-
-    phaseMatches?.forEach(m => {
-      if (m.player1_id === p.id) {
-        if (m.winner_id === p.id) points += 1;
-        else restPoints += (m.p1_rest_points || 0);
-      } else if (m.player2_id === p.id) {
-        if (m.winner_id === p.id) points += 1;
-        else restPoints += (m.p2_rest_points || 0);
-      }
-    });
-
-    return { id: p.id, name: p.name, points, restPoints };
-  });
-
-  return stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
-}
-
-// 6. STUFE 2: Gruppenphase A & B (Gleichzeitiger Ablauf & ausgewogene Boards)
+// 6. STUFE 2: Gruppenphase A & B
 async function generateGruppenphase() {
   const stats = await getPhaseStats('vorrunde');
 
@@ -398,10 +381,10 @@ async function generateGruppenphase() {
   }
 }
 
-// 7. STUFE 3: Zwischenrunde (Exakt 1 Überkreuz-Match pro Spieler, Best of 3)
+// 7. STUFE 3: Zwischenrunde (EXAKTE K.O.-ÜBERKREUZ-LOGIK, BEST OF 3)
 async function generateZwischenrunde() {
-  const statsA = await getPhaseStats('gruppe_a');
-  const statsB = await getPhaseStats('gruppe_b');
+  const statsA = await getGroupRankings('gruppe_a');
+  const statsB = await getGroupRankings('gruppe_b');
 
   if (statsA.length === 0 || statsB.length === 0) {
     alert('Fehler beim Auslesen der Gruppenergebnisse!');
@@ -412,29 +395,34 @@ async function generateZwischenrunde() {
     return;
   }
 
-  // Alte Zwischenrunden-Spiele vorher gründlich entfernen
+  // Alte Zwischenrunden-Spiele vorher gründlich löschen
   await supabaseClient.from('matches').delete().eq('phase', 'zwischenrunde');
 
   const crossPairs = [];
-  const len = Math.min(statsA.length, statsB.length);
 
-  // KORREKTE ÜBERKREUZ-LOGIK:
-  // Wir paarweisen immer 2 Ränge miteinander (0&1, 2&3, 4&5...)
-  // Paar 1: 1. A (index 0) vs 2. B (index 1) UND 1. B (index 0) vs 2. A (index 1)
-  // Paar 2: 3. A (index 2) vs 4. B (index 3) UND 3. B (index 2) vs 4. A (index 3)
-  for (let i = 0; i < len; i += 2) {
+  // Exakte Zuordnung je Paarung von Plätzen:
+  // Rang 1 A vs Rang 2 B (Tobias - Robert)
+  // Rang 2 A vs Rang 1 B (Anke - TIC)
+  // Rang 3 A vs Rang 4 B (Thorsten - Jens)
+  // Rang 4 A vs Rang 3 B (Heiko - Peter)
+  // Usw. für weitere Plätze
+  const maxPlayers = Math.max(statsA.length, statsB.length);
+
+  for (let i = 0; i < maxPlayers; i += 2) {
+    // 1. A vs 2. B (Index i vs Index i+1)
     if (statsA[i] && statsB[i + 1]) {
       crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
     }
-    if (statsB[i] && statsA[i + 1]) {
-      crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+    // 2. A vs 1. B (Index i+1 vs Index i)
+    if (statsA[i + 1] && statsB[i]) {
+      crossPairs.push({ p1: statsA[i + 1], p2: statsB[i] });
     }
   }
 
   const newMatches = [];
   let matchCounter = 1;
 
-  // Jede Paarung wird exakt EINMAL als Best-of-3 angelegt
+  // Jede Paarung wird genau EINMAL im Best-of-3 angelegt
   crossPairs.forEach(pair => {
     newMatches.push({
       phase: 'zwischenrunde',
@@ -470,7 +458,7 @@ async function generateFinals() {
     return;
   }
 
-  // Alte Finalspiele löschen, falls bereits vorhanden
+  // Alte Finalspiele löschen
   await supabaseClient.from('matches').delete().in('phase', ['finale', 'platz_3']);
 
   const winners = zwMatches.map(m => m.winner_id);
