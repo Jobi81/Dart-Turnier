@@ -53,7 +53,7 @@ async function registerPlayer() {
   }
 }
 
-// 2. Angemeldete Teilnehmer auflisten (sichere Abfrage ohne Spaltensortierungs-Fehler)
+// 2. Angemeldete Teilnehmer auflisten
 async function loadRegisteredPlayers() {
   const listEl = document.getElementById('registered-players-list');
   const countEl = document.getElementById('player-count');
@@ -169,10 +169,8 @@ async function generateVorrunde() {
     return;
   }
 
-  // Bestehende Matches löschen
   await supabaseClient.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-  // Algorithmus für ausgewogene Rundenpaarungen (Round-Robin)
   let pList = [...players];
   if (pList.length % 2 !== 0) {
     pList.push({ id: null, name: 'FREILOS' });
@@ -202,7 +200,6 @@ async function generateVorrunde() {
     pList.splice(1, 0, pList.pop());
   }
 
-  // Verteilung auf Board 1 & Board 2
   const newMatches = [];
   let matchCounter = 1;
 
@@ -233,7 +230,7 @@ async function generateVorrunde() {
   }
 }
 
-// 6. Offene und abgeschlossene Matches laden
+// 6. Offene und abgeschlossene Matches laden mit neuem Layout & Edit-Funktion
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -247,57 +244,84 @@ async function loadMatches() {
     return;
   }
 
+  // Offene Matches zuerst, beendete danach
+  matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
+
   let html = '';
   matches.forEach(m => {
     const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
     const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
     const phaseTitle = m.phase.toUpperCase();
-    const boardBadge = m.board || 'Board 1';
+    const isBoard2 = (m.board === 'Board 2');
+    const boardNum = isBoard2 ? '2' : '1';
+    const boardClass = isBoard2 ? 'board-2' : 'board-1';
 
     if (m.is_completed) {
+      // BEENDETES MATCH (mit Bearbeitungsstift)
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
-        <div class="match-card" style="opacity: 0.65; border-color: #1e293b;">
-          <div class="match-header">
-            <div>
-              <span class="phase-badge">${phaseTitle}</span> 
-              <span class="phase-badge" style="background: #475569;">${boardBadge}</span> — Beendet
-            </div>
+        <div class="match-card completed">
+          <div class="board-badge-large ${boardClass}">
+            <span class="icon">🎯</span>
+            <span class="number">${boardNum}</span>
+            <span class="label">Board</span>
           </div>
-          <div><strong>${p1Name}</strong> vs <strong>${p2Name}</strong></div>
-          <div style="font-size: 0.85rem; color: var(--accent); margin-top: 0.3rem;">
-            🏆 Sieger: ${winnerName} | Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0}
+
+          <div class="match-content">
+            <div class="match-header-info">
+              <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+              <button onclick="reopenMatch('${m.id}')" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #475569; color: #fff;" title="Ergebnis korrigieren">
+                ✏️ Bearbeiten
+              </button>
+            </div>
+
+            <div class="vs-grid">
+              <div class="player-title">${p1Name}</div>
+              <div class="vs-divider">VS</div>
+              <div class="player-title">${p2Name}</div>
+            </div>
+
+            <div style="font-size: 0.9rem; color: var(--accent); margin-top: 0.4rem; text-align: center; background: #0b0f19; padding: 0.4rem; border-radius: 6px;">
+              🏆 Sieger: <strong>${winnerName}</strong> (Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0})
+            </div>
           </div>
         </div>`;
     } else {
+      // OFFENES MATCH (mit großer Eingabe)
       html += `
         <div class="match-card">
-          <div class="match-header">
-            <div>
-              <span class="phase-badge" style="background: var(--accent); color: #000;">${phaseTitle}</span>
-              <span class="phase-badge" style="background: #3b82f6; color: #fff;">${boardBadge}</span>
-            </div>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">Runde ${m.round_number || 1}</span>
-          </div>
-          
-          <div style="margin: 0.75rem 0; font-size: 1.1rem;">
-            <strong>${p1Name}</strong> <span style="color: var(--text-muted);">vs</span> <strong>${p2Name}</strong>
-          </div>
-          
-          <div class="match-inputs">
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted);">${p1Name} Restpunkte:</label>
-              <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
-            </div>
-            <div>
-              <label style="font-size: 0.8rem; color: var(--text-muted);">${p2Name} Restpunkte:</label>
-              <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0">
-            </div>
+          <div class="board-badge-large ${boardClass}">
+            <span class="icon">🎯</span>
+            <span class="number">${boardNum}</span>
+            <span class="label">Board</span>
           </div>
 
-          <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.5rem;">
-            Ergebnis Speichern
-          </button>
+          <div class="match-content">
+            <div class="match-header-info">
+              <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+            </div>
+
+            <div class="vs-grid">
+              <div class="player-title">${p1Name}</div>
+              <div class="vs-divider">VS</div>
+              <div class="player-title">${p2Name}</div>
+            </div>
+
+            <div class="match-inputs-grid">
+              <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p1Name}</label>
+                <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p2Name}</label>
+                <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+              </div>
+            </div>
+
+            <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.6rem;">
+              Ergebnis Speichern
+            </button>
+          </div>
         </div>`;
     }
   });
@@ -339,6 +363,21 @@ async function submitResult(matchId, p1Id, p2Id) {
 
   if (error) {
     alert('Fehler beim Speichern: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
+
+// 8. Beendetes Match wieder zur Bearbeitung freischalten (✏️ Korrektur-Funktion)
+async function reopenMatch(matchId) {
+  const { error } = await supabaseClient.from('matches').update({
+    is_completed: false,
+    winner_id: null
+  }).eq('id', matchId);
+
+  if (error) {
+    alert('Fehler beim Freischalten: ' + error.message);
   } else {
     loadRanking();
     loadMatches();
