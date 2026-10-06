@@ -7,7 +7,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentPlayer = localStorage.getItem('dart_player_name') || null;
 
-// Realtime Subscriber einrichten für automatische Updates bei allen Teilnehmern
+// Realtime Subscriber einrichten
 supabaseClient
   .channel('turnier_updates')
   .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
@@ -15,6 +15,7 @@ supabaseClient
     loadMatches();
   })
   .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+    loadRegisteredPlayers();
     loadRanking();
     loadMatches();
   })
@@ -49,6 +50,7 @@ async function registerPlayer() {
 
     alert(`Willkommen beim Turnier, ${nameInput}!`);
 
+    loadRegisteredPlayers();
     loadRanking();
     loadMatches();
 
@@ -58,7 +60,56 @@ async function registerPlayer() {
   }
 }
 
-// 2. Live-Rangliste laden & Tiebreaker berechnen
+// 2. Angemeldete Teilnehmer auflisten (NEU)
+async function loadRegisteredPlayers() {
+  const listEl = document.getElementById('registered-players-list');
+  const countEl = document.getElementById('player-count');
+  if (!listEl) return;
+
+  const { data: players, error } = await supabaseClient.from('players').select('*').order('created_at', { ascending: true });
+
+  if (error || !players || players.length === 0) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Teilnehmer angemeldet.</p>';
+    if (countEl) countEl.innerText = '0';
+    return;
+  }
+
+  if (countEl) countEl.innerText = players.length;
+
+  let html = '';
+  players.forEach(p => {
+    html += `
+      <div class="player-chip">
+        <span>👤 <strong>${p.name}</strong></span>
+        <span class="remove-btn" onclick="deletePlayer('${p.id}', '${p.name}')" title="Spieler entfernen">&times;</span>
+      </div>`;
+  });
+
+  listEl.innerHTML = html;
+}
+
+// 3. Teilnehmer löschen (falls versehentlich angemeldet)
+async function deletePlayer(playerId, playerName) {
+  if (!confirm(`Möchtest du "${playerName}" wirklich aus der Teilnehmerliste entfernen?`)) {
+    return;
+  }
+
+  const { error } = await supabaseClient.from('players').delete().eq('id', playerId);
+  if (error) {
+    alert('Fehler beim Löschen: ' + error.message);
+  } else {
+    if (currentPlayer === playerName) {
+      localStorage.removeItem('dart_player_name');
+      currentPlayer = null;
+      const authSec = document.getElementById('auth-section');
+      if (authSec) authSec.style.display = 'block';
+    }
+    loadRegisteredPlayers();
+    loadRanking();
+  }
+}
+
+// 4. Live-Rangliste laden & Tiebreaker berechnen
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -66,8 +117,8 @@ async function loadRanking() {
   const { data: players, error: pErr } = await supabaseClient.from('players').select('*');
   const { data: matches, error: mErr } = await supabaseClient.from('matches').select('*').eq('is_completed', true);
 
-  if (pErr || !players) {
-    rankingEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Spieler angemeldet.</p>';
+  if (pErr || !players || players.length === 0) {
+    rankingEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Punkte vorhanden.</p>';
     return;
   }
 
@@ -92,11 +143,6 @@ async function loadRanking() {
   });
 
   stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
-
-  if (stats.length === 0) {
-    rankingEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Daten vorhanden.</p>';
-    return;
-  }
 
   let html = `<table class="table">
     <thead>
@@ -125,7 +171,7 @@ async function loadRanking() {
   rankingEl.innerHTML = html;
 }
 
-// 3. Vorrunde generieren (Jeder gegen Jeden - 301 Single Out)
+// 5. Vorrunde generieren (Jeder gegen Jeden - 301 Single Out)
 async function generateVorrunde() {
   const { data: players } = await supabaseClient.from('players').select('*');
   if (!players || players.length < 2) {
@@ -133,7 +179,7 @@ async function generateVorrunde() {
     return;
   }
 
-  if (!confirm('Möchtest du die Vorrunde jetzt starten? Es werden alle Duelle generiert.')) {
+  if (!confirm(`Vorrunde mit ${players.length} Spielern starten? Es werden alle Duelle generiert.`)) {
     return;
   }
 
@@ -161,7 +207,7 @@ async function generateVorrunde() {
   }
 }
 
-// 4. Offene und abgeschlossene Matches laden
+// 6. Offene und abgeschlossene Matches laden
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -225,7 +271,7 @@ async function loadMatches() {
   listEl.innerHTML = html;
 }
 
-// 5. Ergebnis eintragen
+// 7. Ergebnis eintragen
 async function submitResult(matchId, p1Id, p2Id) {
   const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
   const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
@@ -272,6 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const authSec = document.getElementById('auth-section');
     if (authSec) authSec.style.display = 'none';
   }
+  loadRegisteredPlayers();
   loadRanking();
   loadMatches();
 });
