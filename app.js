@@ -416,24 +416,18 @@ async function generateZwischenrunde() {
   await supabaseClient.from('matches').delete().eq('phase', 'zwischenrunde');
 
   const crossPairs = [];
+  const len = Math.min(statsA.length, statsB.length);
 
-  // Exakte 1-zu-1 Überkreuz-Paarung:
-  // 1. Platz Gruppe A vs. 2. Platz Gruppe B
-  // 1. Platz Gruppe B vs. 2. Platz Gruppe A
-  // 3. Platz Gruppe A vs. 4. Platz Gruppe B
-  // 3. Platz Gruppe B vs. 4. Platz Gruppe A usw.
-  const minLen = Math.min(statsA.length, statsB.length);
-  for (let idx = 0; idx < minLen; idx++) {
-    if (idx % 2 === 0) {
-      // Unbekannter/Gerader Index: A vs B
-      if (statsA[idx] && statsB[idx + 1]) {
-        crossPairs.push({ p1: statsA[idx], p2: statsB[idx + 1] });
-      }
-    } else {
-      // Ungerader Index: B vs A
-      if (statsB[idx - 1] && statsA[idx]) {
-        crossPairs.push({ p1: statsB[idx - 1], p2: statsA[idx] });
-      }
+  // KORREKTE ÜBERKREUZ-LOGIK:
+  // Wir paarweisen immer 2 Ränge miteinander (0&1, 2&3, 4&5...)
+  // Paar 1: 1. A (index 0) vs 2. B (index 1) UND 1. B (index 0) vs 2. A (index 1)
+  // Paar 2: 3. A (index 2) vs 4. B (index 3) UND 3. B (index 2) vs 4. A (index 3)
+  for (let i = 0; i < len; i += 2) {
+    if (statsA[i] && statsB[i + 1]) {
+      crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
+    }
+    if (statsB[i] && statsA[i + 1]) {
+      crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
     }
   }
 
