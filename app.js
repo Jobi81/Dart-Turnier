@@ -19,7 +19,7 @@ supabaseClient
   })
   .subscribe();
 
-// Helper: Generiert einen Round-Robin Spielplan
+// Helper: Generiert einen Round-Robin Spielplan (Jeder gegen Jeden)
 function buildRoundRobin(playerList) {
   let pList = [...playerList];
   if (pList.length % 2 !== 0) {
@@ -403,7 +403,6 @@ async function generateGruppenphase() {
   let matchCounter = 1;
   const maxRounds = Math.max(roundsA.length, roundsB.length);
 
-  // Abwechselndes Einfügen der Runden aus A und B für ein gleichzeitiges Turniererlebnis
   for (let r = 0; r < maxRounds; r++) {
     if (roundsA[r]) {
       roundsA[r].forEach(m => {
@@ -444,7 +443,7 @@ async function generateGruppenphase() {
   }
 }
 
-// 7. STUFE 3: Zwischenrunde (Überkreuz-Duelle Best of 3)
+// 7. STUFE 3: Zwischenrunde (Exakt 1 Überkreuz-Match pro Paarung, Best of 3)
 async function generateZwischenrunde() {
   const statsA = await getPhaseStats('gruppe_a');
   const statsB = await getPhaseStats('gruppe_b');
@@ -459,9 +458,10 @@ async function generateZwischenrunde() {
   }
 
   const crossPairs = [];
-  const minLength = Math.min(statsA.length, statsB.length);
+  const totalRanked = Math.max(statsA.length, statsB.length);
 
-  for (let i = 0; i < minLength; i += 2) {
+  // Überkreuz-Prinzip (1. A vs 2. B, 1. B vs 2. A, 3. A vs 4. B...)
+  for (let i = 0; i < totalRanked; i += 2) {
     if (statsA[i] && statsB[i + 1]) crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
     if (statsB[i] && statsA[i + 1]) crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
   }
@@ -469,6 +469,7 @@ async function generateZwischenrunde() {
   const newMatches = [];
   let matchCounter = 1;
 
+  // Jede Paarung wird GENAU EINMAL als K.o.-Match angelegt
   crossPairs.forEach(pair => {
     newMatches.push({
       phase: 'zwischenrunde',
@@ -485,7 +486,7 @@ async function generateZwischenrunde() {
   if (error) {
     alert('Fehler beim Erstellen der Zwischenrunde: ' + error.message);
   } else {
-    alert(`Zwischenrunde mit ${newMatches.length} Überkreuz-Duellen gestartet!`);
+    alert(`Zwischenrunde mit genau ${newMatches.length} Überkreuz-Duellen gestartet!`);
     loadMatches();
     loadRanking();
   }
