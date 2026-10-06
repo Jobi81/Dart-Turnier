@@ -29,7 +29,7 @@
       overflow-x: hidden;
     }
 
-    /* Mehrere kräftig rote fliegende Darts im Hintergrund */
+    /* Animierte rote Darts im Hintergrund */
     .dart-bg {
       position: fixed;
       top: 0;
@@ -50,7 +50,6 @@
       animation: flyDart 12s linear infinite;
     }
 
-    /* 12 Darts mit unterschiedlichen Positionen, Geschwindigkeiten und Delays */
     .dart-icon:nth-child(1)  { top: 8%;  left: -10%; animation-delay: 0s;   animation-duration: 11s; }
     .dart-icon:nth-child(2)  { top: 22%; left: -10%; animation-delay: 2s;   animation-duration: 14s; }
     .dart-icon:nth-child(3)  { top: 38%; left: -10%; animation-delay: 5s;   animation-duration: 10s; }
@@ -71,7 +70,7 @@
       100% { transform: translateX(120vw) translateY(-25vh) rotate(45deg); opacity: 0; }
     }
 
-    .container { max-width: 650px; margin: 0 auto; position: relative; z-index: 1; }
+    .container { max-width: 750px; margin: 0 auto; position: relative; z-index: 1; }
     
     .card {
       background: var(--card);
@@ -133,7 +132,6 @@
     }
     button:active { transform: scale(0.98); }
 
-    /* Deaktivierte Buttons */
     button:disabled {
       background: #2a2723 !important;
       color: #665f55 !important;
@@ -144,8 +142,22 @@
     }
 
     .table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-    .table th, .table td { padding: 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
-    .table th { color: var(--text-muted); font-size: 0.85rem; }
+    .table th, .table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+    .table th { color: var(--text-muted); font-size: 0.8rem; }
+
+    /* Nebeneinander-Grid für Gruppen A & B */
+    .groups-container-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .group-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem;
+    }
 
     .player-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
     .player-chip {
@@ -319,7 +331,7 @@
       <div id="registered-players-list" class="player-list">Lade Teilnehmer...</div>
     </div>
 
-    <!-- Admin / Steuerung mit stufenweiser Freischaltung -->
+    <!-- Admin / Steuerung -->
     <div id="admin-section" class="card">
       <h2>Turnier-Steuerung</h2>
       <div class="admin-grid">
@@ -390,6 +402,6 @@
       document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
     }
   </script>
-  <script src="app.js?v=14"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>
