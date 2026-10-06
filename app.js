@@ -5,7 +5,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Supabase Client initialisieren
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Realtime Subscriber einrichten für sofortige Updates auf allen Smartphones
+// Realtime Subscriber einrichten für sofortige Live-Updates
 supabaseClient
   .channel('turnier_updates')
   .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
@@ -96,7 +96,7 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste laden & Tiebreaker berechnen (Siege > weniger Restpunkte)
+// 4. Live-Rangliste laden & Tiebreaker berechnen
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -169,7 +169,6 @@ async function generateVorrunde() {
     return;
   }
 
-  // Zurücksetzen alter Paarungen
   await supabaseClient.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
   let pList = [...players];
@@ -231,7 +230,7 @@ async function generateVorrunde() {
   }
 }
 
-// 6. Offene und abgeschlossene Matches laden (mit Grafik-Board & großen Nummern)
+// 6. Offene und abgeschlossene Matches laden (mit verlässlicher SVG-Dartboard Grafikeinbindung)
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -248,8 +247,8 @@ async function loadMatches() {
   // Offene Matches zuerst anzeigen, beendete nach unten
   matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
 
-  // SVG-Dartboard als Data-URI
-  const dartboardSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%230b0f19" stroke="%23334155" stroke-width="2"/><circle cx="50" cy="50" r="40" fill="none" stroke="%2322c55e" stroke-width="3"/><circle cx="50" cy="50" r="28" fill="none" stroke="%23ef4444" stroke-width="3"/><circle cx="50" cy="50" r="14" fill="%2322c55e"/><circle cx="50" cy="50" r="6" fill="%23ef4444"/></svg>`;
+  // SVG Dartboard Markup als HTML String
+  const svgMarkup = `<svg class="dartboard-img" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="48" fill="#0b0f19" stroke="#334155" stroke-width="2"/><circle cx="50" cy="50" r="40" fill="none" stroke="#22c55e" stroke-width="4"/><circle cx="50" cy="50" r="28" fill="none" stroke="#ef4444" stroke-width="4"/><circle cx="50" cy="50" r="14" fill="#22c55e"/><circle cx="50" cy="50" r="6" fill="#ef4444"/></svg>`;
 
   let html = '';
   matches.forEach(m => {
@@ -261,12 +260,12 @@ async function loadMatches() {
     const boardClass = isBoard2 ? 'board-2' : 'board-1';
 
     if (m.is_completed) {
-      // BEENDETES MATCH
+      // BEENDETES MATCH (mit Bearbeiten-Stift)
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
         <div class="match-card completed">
           <div class="board-badge-container">
-            <img src="${dartboardSvg}" class="dartboard-img" alt="Dartboard">
+            ${svgMarkup}
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
@@ -294,7 +293,7 @@ async function loadMatches() {
       html += `
         <div class="match-card">
           <div class="board-badge-container">
-            <img src="${dartboardSvg}" class="dartboard-img" alt="Dartboard">
+            ${svgMarkup}
             <div class="board-number-overlay ${boardClass}">${boardNum}</div>
           </div>
 
@@ -371,7 +370,7 @@ async function submitResult(matchId, p1Id, p2Id) {
   }
 }
 
-// 8. Ergebnis zur Korrektur wieder freischalten (✏️️ Edit-Button)
+// 8. Beendetes Match wieder freischalten (✏ Edit-Button)
 async function reopenMatch(matchId) {
   const { error } = await supabaseClient.from('matches').update({
     is_completed: false,
@@ -386,7 +385,7 @@ async function reopenMatch(matchId) {
   }
 }
 
-// Initialer Aufruf beim Seitenstart
+// Initialer Aufruf beim Laden der Seite
 document.addEventListener('DOMContentLoaded', () => {
   loadRegisteredPlayers();
   loadRanking();
