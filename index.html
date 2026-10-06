@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dart-Turnier Manager</title>
+  <title>🎯 Dart-Turnier Manager</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --bg: #121826;
-      --card: #1f293d;
+      --bg: #0f172a;
+      --card: #1e293b;
       --accent: #22c55e;
+      --accent-hover: #16a34a;
       --text: #f8fafc;
       --text-muted: #94a3b8;
+      --border: #334155;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -20,20 +22,22 @@
       margin: 0;
       padding: 1rem;
     }
-    .container { max-width: 600px; margin: 0 auto; }
+    .container { max-width: 650px; margin: 0 auto; }
     .card {
       background: var(--card);
       border-radius: 12px;
       padding: 1.25rem;
       margin-bottom: 1rem;
+      border: 1px solid var(--border);
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
     h1, h2, h3 { margin-top: 0; }
-    input, button {
+    .header-title { text-align: center; color: var(--accent); margin-bottom: 1.5rem; }
+    input, button, select {
       width: 100%;
       padding: 0.75rem;
       border-radius: 8px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border);
       background: #0f172a;
       color: #fff;
       font-size: 1rem;
@@ -46,44 +50,65 @@
       font-weight: bold;
       border: none;
       cursor: pointer;
+      transition: background 0.2s;
     }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: #475569;
+      color: #fff;
+    }
+    .btn-secondary:hover { background: #334155; }
     .table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-    .table th, .table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #334155; }
-    .badge {
-      background: #334155;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.8rem;
-    }
-    .match-box {
-      border: 1px solid #334155;
+    .table th, .table td { padding: 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
+    .table th { color: var(--text-muted); font-size: 0.85rem; }
+    .match-card {
+      background: #0f172a;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 0.75rem;
+      padding: 1rem;
       margin-bottom: 0.75rem;
+    }
+    .match-header { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .match-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.5rem 0; }
+    .phase-badge {
+      display: inline-block;
+      background: #334155;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🎯 Dart-Turnier 2026</h1>
+    <h1 class="header-title">🎯 Dart-Turnier 2026</h1>
     
     <!-- Login / Registrierung -->
     <div id="auth-section" class="card">
       <h2>Spieler-Anmeldung</h2>
-      <input type="text" id="player-name-input" placeholder="Dein Name / Spielerneingabe">
+      <input type="text" id="player-name-input" placeholder="Dein Vorname / Name">
       <button onclick="registerPlayer()">Am Turnier teilnehmen</button>
     </div>
 
-    <!-- Live Tabelle -->
+    <!-- Admin / Steuerung -->
+    <div id="admin-section" class="card">
+      <h2>Turnier-Steuerung</h2>
+      <div id="admin-actions">
+        <button onclick="generateVorrunde()">Vorrunde starten (Jeder gegen Jeden)</button>
+      </div>
+    </div>
+
+    <!-- Live Rangliste -->
     <div id="ranking-section" class="card">
       <h2>Live-Rangliste</h2>
       <div id="ranking-table">Lade Daten...</div>
     </div>
 
-    <!-- Meine / Offene Spiele -->
+    <!-- Offene Duelle -->
     <div id="matches-section" class="card">
-      <h2>Aktuelle Duelle</h2>
+      <h2>Aktuelle Spielpaarungen</h2>
       <div id="matches-list">Lade Duelle...</div>
     </div>
   </div>
