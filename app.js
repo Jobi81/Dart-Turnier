@@ -128,7 +128,7 @@ async function deletePlayer(playerId, playerName) {
   }
 }
 
-// 4. Live-Rangliste laden (nach Phasen unterteilt)
+// 4. Live-Rangliste laden
 async function loadRanking() {
   const rankingEl = document.getElementById('ranking-table');
   if (!rankingEl) return;
@@ -141,9 +141,7 @@ async function loadRanking() {
     return;
   }
 
-  // Überprüfen, welche Phasen vorhanden sind
   const phasesInDb = [...new Set(matches?.map(m => m.phase) || [])];
-  const activePhase = phasesInDb.includes('gruppe_a') ? 'gruppe' : 'vorrunde';
 
   function renderTableForPhase(phaseName, title, filteredPlayers = players) {
     const phaseMatches = matches?.filter(m => m.phase === phaseName) || [];
@@ -197,17 +195,16 @@ async function loadRanking() {
     return html;
   }
 
-  if (activePhase === 'vorrunde') {
-    rankingEl.innerHTML = renderTableForPhase('vorrunde', 'Vorrunde Live-Rangliste');
-  } else {
-    // Wenn Gruppenphase läuft: Gruppe A & Gruppe B getrennt darstellen
+  if (phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b')) {
     let html = renderTableForPhase('gruppe_a', 'Gruppe A Rangliste');
     html += renderTableForPhase('gruppe_b', 'Gruppe B Rangliste');
     rankingEl.innerHTML = html;
+  } else {
+    rankingEl.innerHTML = renderTableForPhase('vorrunde', 'Vorrunde Live-Rangliste');
   }
 }
 
-// 5. Vorrunde generieren
+// 5. STUFE 1: Vorrunde generieren
 async function generateVorrunde() {
   const { data: players } = await supabaseClient.from('players').select('*');
   if (!players || players.length < 2) {
@@ -227,17 +224,14 @@ async function generateVorrunde() {
 
   rawRounds.forEach(round => {
     round.forEach(m => {
-      const boardName = (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2';
-
       newMatches.push({
         phase: 'vorrunde',
         round_number: m.round_number,
         player1_id: m.player1_id,
         player2_id: m.player2_id,
-        board: boardName,
+        board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
         is_completed: false
       });
-
       matchCounter++;
     });
   });
@@ -252,22 +246,16 @@ async function generateVorrunde() {
   }
 }
 
-// 6. Gruppenphase A & B generieren (basierend auf der Vorrunden-Platzierung)
-async function generateGruppenphase() {
+// Helper: Berechnet Rangliste einer Phase
+async function getPhaseStats(phaseName) {
   const { data: players } = await supabaseClient.from('players').select('*');
-  const { data: vorrundeMatches } = await supabaseClient.from('matches').select('*').eq('phase', 'vorrunde').eq('is_completed', true);
+  const { data: phaseMatches } = await supabaseClient.from('matches').select('*').eq('phase', phaseName).eq('is_completed', true);
 
-  if (!players || players.length < 4) {
-    alert('Für eine Gruppenphase werden mindestens 4 Spieler benötigt!');
-    return;
-  }
-
-  // Vorrunden-Ergebnisse berechnen für die Platzierung
   const stats = players.map(p => {
     let points = 0;
     let restPoints = 0;
 
-    vorrundeMatches?.forEach(m => {
+    phaseMatches?.forEach(m => {
       if (m.player1_id === p.id) {
         if (m.winner_id === p.id) points += 1;
         else restPoints += (m.p1_rest_points || 0);
@@ -280,10 +268,13 @@ async function generateGruppenphase() {
     return { id: p.id, name: p.name, points, restPoints };
   });
 
-  // Nach Rangliste sortieren: 1. Siege, 2. weniger Restpunkte
-  stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+  return stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+}
 
-  // Aufteilung abwechselnd auf Gruppe A und Gruppe B
+// 6. STUFE 2: Gruppenphase A & B generieren
+async function generateGruppenphase() {
+  const stats = await getPhaseStats('vorrunde');
+
   const gruppeA = [];
   const gruppeB = [];
 
@@ -292,7 +283,7 @@ async function generateGruppenphase() {
     else gruppeB.push(p);
   });
 
-  if (!confirm(`Gruppenphase jetzt starten?\nGruppe A: ${gruppeA.map(g=>g.name).join(', ')}\nGruppe B: ${gruppeB.map(g=>g.name).join(', ')}`)) {
+  if (!confirm(`Gruppenphase A & B starten?\n\nGruppe A:\n${gruppeA.map((g,i)=>`${i+1}.${g.name}`).join('\n')}\n\nGruppe B:\n${gruppeB.map((g,i)=>`${i+1}.${g.name}`).join('\n')}`)) {
     return;
   }
 
@@ -302,7 +293,6 @@ async function generateGruppenphase() {
   const newMatches = [];
   let matchCounter = 1;
 
-  // Gruppe A Paarungen
   roundsA.forEach(round => {
     round.forEach(m => {
       newMatches.push({
@@ -317,7 +307,6 @@ async function generateGruppenphase() {
     });
   });
 
-  // Gruppe B Paarungen
   roundsB.forEach(round => {
     round.forEach(m => {
       newMatches.push({
@@ -336,13 +325,114 @@ async function generateGruppenphase() {
   if (error) {
     alert('Fehler beim Erstellen der Gruppenphase: ' + error.message);
   } else {
-    alert(`Gruppenphase gestartet!\n${gruppeA.length} Spieler in Gruppe A, ${gruppeB.length} Spieler in Gruppe B.`);
+    alert(`Gruppenphase erfolgreich gestartet!`);
     loadMatches();
     loadRanking();
   }
 }
 
-// 7. Offene und abgeschlossene Matches laden
+// 7. STUFE 3: Zwischenrunde (Überkreuz-Duelle) generieren
+async function generateZwischenrunde() {
+  const statsA = await getPhaseStats('gruppe_a');
+  const statsB = await getPhaseStats('gruppe_b');
+
+  if (statsA.length === 0 || statsB.length === 0) {
+    alert('Fehler beim Auslesen der Gruppenergebnisse!');
+    return;
+  }
+
+  if (!confirm(`Zwischenrunde (Überkreuz-Duelle Best of 3) jetzt starten?`)) {
+    return;
+  }
+
+  const crossPairs = [];
+  const minLength = Math.min(statsA.length, statsB.length);
+
+  // Überkreuz: 1. A vs 2. B, 1. B vs 2. A, 3. A vs 4. B etc.
+  for (let i = 0; i < minLength; i += 2) {
+    if (statsA[i] && statsB[i + 1]) crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
+    if (statsB[i] && statsA[i + 1]) crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+  }
+
+  const newMatches = [];
+  let matchCounter = 1;
+
+  crossPairs.forEach(pair => {
+    newMatches.push({
+      phase: 'zwischenrunde',
+      round_number: 1,
+      player1_id: pair.p1.id,
+      player2_id: pair.p2.id,
+      board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
+      is_completed: false
+    });
+    matchCounter++;
+  });
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Zwischenrunde: ' + error.message);
+  } else {
+    alert(`Zwischenrunde mit ${newMatches.length} Überkreuz-Duellen gestartet!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 8. STUFE 4: Finals & Platzierungsspiele generieren
+async function generateFinals() {
+  const { data: zwMatches } = await supabaseClient.from('matches').select('*, p1:player1_id(name), p2:player2_id(name)').eq('phase', 'zwischenrunde').eq('is_completed', true);
+
+  if (!zwMatches || zwMatches.length === 0) {
+    alert('Keine Ergebnisse der Zwischenrunde vorhanden!');
+    return;
+  }
+
+  if (!confirm(`Finals & Platzierungsspiele jetzt starten?`)) {
+    return;
+  }
+
+  // Gewinner Halbfinals ins Finale
+  const winners = zwMatches.map(m => m.winner_id);
+  const losers = zwMatches.map(m => m.winner_id === m.player1_id ? m.player2_id : m.player1_id);
+
+  const newMatches = [];
+
+  // FINALE
+  if (winners.length >= 2) {
+    newMatches.push({
+      phase: 'finale',
+      round_number: 1,
+      player1_id: winners[0],
+      player2_id: winners[1],
+      board: 'Board 1',
+      is_completed: false
+    });
+  }
+
+  // Spiel um Platz 3
+  if (losers.length >= 2) {
+    newMatches.push({
+      phase: 'platz_3',
+      round_number: 1,
+      player1_id: losers[0],
+      player2_id: losers[1],
+      board: 'Board 2',
+      is_completed: false
+    });
+  }
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Finals: ' + error.message);
+  } else {
+    alert(`Finalspiele erfolgreich generiert!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 9. Offene und abgeschlossene Matches laden + Status-Prüfung für Admin-Buttons
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -351,12 +441,52 @@ async function loadMatches() {
     .from('matches')
     .select('*, p1:player1_id(name), p2:player2_id(name)');
 
-  if (error || !matches || matches.length === 0) {
+  if (error || !matches) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Fehler beim Laden der Duelle.</p>';
+    return;
+  }
+
+  // --- FREISCHALTUNGS-LOGIK FÜR ADMIN-BUTTONS ---
+  const btnGruppe = document.getElementById('btn-gruppe');
+  const btnZwischenrunde = document.getElementById('btn-zwischenrunde');
+  const btnFinals = document.getElementById('btn-finals');
+  const statusHint = document.getElementById('admin-status-hint');
+
+  const vorrundeMatches = matches.filter(m => m.phase === 'vorrunde');
+  const gruppenMatches = matches.filter(m => m.phase === 'gruppe_a' || m.phase === 'gruppe_b');
+  const zwischenrundeMatches = matches.filter(m => m.phase === 'zwischenrunde');
+
+  const vorrundeDone = vorrundeMatches.length > 0 && vorrundeMatches.every(m => m.is_completed);
+  const gruppeDone = gruppenMatches.length > 0 && gruppenMatches.every(m => m.is_completed);
+  const zwischenrundeDone = zwischenrundeMatches.length > 0 && zwischenrundeMatches.every(m => m.is_completed);
+
+  if (btnGruppe) btnGruppe.disabled = !vorrundeDone;
+  if (btnZwischenrunde) btnZwischenrunde.disabled = !gruppeDone;
+  if (btnFinals) btnFinals.disabled = !zwischenrundeDone;
+
+  if (statusHint) {
+    if (!vorrundeDone && vorrundeMatches.length > 0) {
+      const openCount = vorrundeMatches.filter(m => !m.is_completed).length;
+      statusHint.innerText = `Vorrunde läuft noch (${openCount} offene Spiele).`;
+    } else if (vorrundeDone && gruppenMatches.length === 0) {
+      statusHint.innerText = `Vorrunde beendet! Bereit für Schritt 2 (Gruppenphase).`;
+    } else if (!gruppeDone && gruppenMatches.length > 0) {
+      const openCount = gruppenMatches.filter(m => !m.is_completed).length;
+      statusHint.innerText = `Gruppenphase läuft noch (${openCount} offene Spiele).`;
+    } else if (gruppeDone && zwischenrundeMatches.length === 0) {
+      statusHint.innerText = `Gruppenphase beendet! Bereit für Schritt 3 (Zwischenrunde).`;
+    } else if (!zwischenrundeDone && zwischenrundeMatches.length > 0) {
+      statusHint.innerText = `Zwischenrunde läuft noch.`;
+    } else if (zwischenrundeDone) {
+      statusHint.innerText = `Zwischenrunde beendet! Bereit für Schritt 4 (Finals).`;
+    }
+  }
+
+  if (matches.length === 0) {
     listEl.innerHTML = '<p style="color: var(--text-muted);">Aktuell sind keine Spielpaarungen aktiv.</p>';
     return;
   }
 
-  // Offene Matches zuerst anzeigen, beendete nach unten
   matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
 
   let html = '';
@@ -367,13 +497,15 @@ async function loadMatches() {
     let phaseTitle = m.phase.toUpperCase();
     if (m.phase === 'gruppe_a') phaseTitle = 'GRUPPE A';
     if (m.phase === 'gruppe_b') phaseTitle = 'GRUPPE B';
+    if (m.phase === 'zwischenrunde') phaseTitle = 'ZWISCHENRUNDE (BEST OF 3)';
+    if (m.phase === 'finale') phaseTitle = '🏆 FINALE (BEST OF 3)';
+    if (m.phase === 'platz_3') phaseTitle = '🥉 SPIEL UM PLATZ 3';
 
     const isBoard2 = (m.board === 'Board 2');
     const boardNum = isBoard2 ? '2' : '1';
     const boardClass = isBoard2 ? 'board-2' : 'board-1';
 
     if (m.is_completed) {
-      // BEENDETES MATCH
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
       html += `
         <div class="match-card completed">
@@ -402,7 +534,6 @@ async function loadMatches() {
           </div>
         </div>`;
     } else {
-      // OFFENES MATCH
       html += `
         <div class="match-card">
           <div class="board-badge-container">
@@ -443,7 +574,7 @@ async function loadMatches() {
   listEl.innerHTML = html;
 }
 
-// 8. Ergebnis eintragen
+// 10. Ergebnis eintragen
 async function submitResult(matchId, p1Id, p2Id) {
   const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
   const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
@@ -483,7 +614,7 @@ async function submitResult(matchId, p1Id, p2Id) {
   }
 }
 
-// 9. Match zur Korrektur freischalten
+// 11. Match zur Korrektur freischalten
 async function reopenMatch(matchId) {
   const { error } = await supabaseClient.from('matches').update({
     is_completed: false,
