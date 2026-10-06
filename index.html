@@ -1,407 +1,783 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎯 Kalkopen World Darts Championship 2027</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    :root {
-      --bg: #0b0f19;
-      --card: #1c1a17;
-      --card-inner: #11100e;
-      --border: #3d372e;
-      --accent: #22c55e;
-      --text: #f8fafc;
-      --text-muted: #a1988a;
-      --board1-color: #38bdf8;
-      --board2-color: #facc15;
+// Supabase Konfiguration
+const SUPABASE_URL = 'https://kivrithhtptvjjotkgzr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpdnJpdGhodHB0dmpqb3RrZ3pyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjgxMjIsImV4cCI6MjEwNjg0NDEyMn0.N86vpqON6XIEYAZjHr7AEd4vJ9DhfG_oDrWRqH8kJdM';
+
+// Supabase Client initialisieren
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Realtime Subscriber einrichten
+supabaseClient
+  .channel('turnier_updates')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => {
+    loadRanking();
+    loadMatches();
+  })
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+    loadRegisteredPlayers();
+    loadRanking();
+    loadMatches();
+  })
+  .subscribe();
+
+// Helper: Generiert einen Round-Robin Spielplan
+function buildRoundRobin(playerList) {
+  let pList = [...playerList];
+  if (pList.length % 2 !== 0) {
+    pList.push({ id: null, name: 'FREILOS' });
+  }
+
+  const numPlayers = pList.length;
+  const numRounds = numPlayers - 1;
+  const half = numPlayers / 2;
+  const rounds = [];
+
+  for (let r = 0; r < numRounds; r++) {
+    const roundMatches = [];
+    for (let i = 0; i < half; i++) {
+      const p1 = pList[i];
+      const p2 = pList[numPlayers - 1 - i];
+
+      if (p1.id && p2.id) {
+        roundMatches.push({
+          player1_id: p1.id,
+          player2_id: p2.id,
+          round_number: r + 1
+        });
+      }
     }
+    rounds.push(roundMatches);
+    pList.splice(1, 0, pList.pop());
+  }
+  return rounds;
+}
+
+// 1. Spieler-Registrierung
+async function registerPlayer() {
+  const inputEl = document.getElementById('player-name-input');
+  if (!inputEl) return;
+  
+  const nameInput = inputEl.value.trim();
+  if (!nameInput) {
+    alert('Bitte gib einen Namen ein!');
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('players')
+      .insert([{ name: nameInput }])
+      .select();
+
+    if (error) {
+      alert('Fehler beim Eintragen: ' + error.message);
+      return;
+    }
+
+    inputEl.value = '';
+    inputEl.focus();
+
+    loadRegisteredPlayers();
+    loadRanking();
+
+  } catch (err) {
+    console.error('Fehler bei der Anmeldung:', err);
+    alert('Verbindungsfehler: ' + err.message);
+  }
+}
+
+// 2. Angemeldete Teilnehmer auflisten
+async function loadRegisteredPlayers() {
+  const listEl = document.getElementById('registered-players-list');
+  const countEl = document.getElementById('player-count');
+  if (!listEl) return;
+
+  const { data: players, error } = await supabaseClient.from('players').select('*');
+
+  if (error || !players || players.length === 0) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Teilnehmer angemeldet.</p>';
+    if (countEl) countEl.innerText = '0';
+    return;
+  }
+
+  if (countEl) countEl.innerText = players.length;
+
+  let html = '';
+  players.forEach(p => {
+    html += `
+      <div class="player-chip">
+        <span>👤 <strong>${p.name}</strong></span>
+        <span class="remove-btn" onclick="deletePlayer('${p.id}', '${p.name}')" title="Spieler entfernen">&times;</span>
+      </div>`;
+  });
+
+  listEl.innerHTML = html;
+}
+
+// 3. Teilnehmer löschen
+async function deletePlayer(playerId, playerName) {
+  if (!confirm(`Möchtest du "${playerName}" wirklich aus der Teilnehmerliste entfernen?`)) {
+    return;
+  }
+
+  const { error } = await supabaseClient.from('players').delete().eq('id', playerId);
+  if (error) {
+    alert('Fehler beim Löschen: ' + error.message);
+  } else {
+    loadRegisteredPlayers();
+    loadRanking();
+  }
+}
+
+// 4. Live-Rangliste laden (Exakt gefilterte Gruppen A & B nebeneinander)
+async function loadRanking() {
+  const rankingEl = document.getElementById('ranking-table');
+  if (!rankingEl) return;
+
+  const { data: players, error: pErr } = await supabaseClient.from('players').select('*');
+  const { data: matches, error: mErr } = await supabaseClient.from('matches').select('*').eq('is_completed', true);
+
+  if (pErr || !players || players.length === 0) {
+    rankingEl.innerHTML = '<p style="color: var(--text-muted);">Noch keine Punkte vorhanden.</p>';
+    return;
+  }
+
+  const phasesInDb = [...new Set(matches?.map(m => m.phase) || [])];
+
+  const vorrundeMatches = matches?.filter(m => m.phase === 'vorrunde') || [];
+  const vrStats = players.map(p => {
+    let points = 0;
+    let restPoints = 0;
+    vorrundeMatches.forEach(m => {
+      if (m.player1_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p1_rest_points || 0);
+      } else if (m.player2_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p2_rest_points || 0);
+      }
+    });
+    return { id: p.id, name: p.name, points, restPoints };
+  });
+
+  vrStats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+
+  const playerIdsA = vrStats.filter((_, idx) => idx % 2 === 0).map(p => p.id);
+  const playerIdsB = vrStats.filter((_, idx) => idx % 2 !== 0).map(p => p.id);
+
+  function buildTableHTML(phaseName, title, allowedPlayerIds = null) {
+    const phaseMatches = matches?.filter(m => m.phase === phaseName) || [];
     
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 1rem;
-      min-height: 100vh;
-      position: relative;
-      overflow-x: hidden;
+    let targetPlayers = players;
+    if (allowedPlayerIds) {
+      targetPlayers = players.filter(p => allowedPlayerIds.includes(p.id));
     }
 
-    /* Animierte rote Darts im Hintergrund */
-    .dart-bg {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 0;
-      overflow: hidden;
+    const stats = targetPlayers.map(p => {
+      let points = 0;
+      let restPoints = 0;
+      let played = 0;
+
+      phaseMatches.forEach(m => {
+        if (m.player1_id === p.id) {
+          played++;
+          if (m.winner_id === p.id) points += 1;
+          else restPoints += (m.p1_rest_points || 0);
+        } else if (m.player2_id === p.id) {
+          played++;
+          if (m.winner_id === p.id) points += 1;
+          else restPoints += (m.p2_rest_points || 0);
+        }
+      });
+
+      return { id: p.id, name: p.name, points, restPoints, played };
+    });
+
+    stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+
+    let html = `<div class="group-box">
+      <h4 style="color: var(--accent); margin: 0 0 0.5rem 0;">${title}</h4>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Spieler</th>
+            <th>Sp.</th>
+            <th>Siege</th>
+            <th>Restp.</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    stats.forEach((s, i) => {
+      html += `<tr>
+        <td><strong>${i + 1}</strong></td>
+        <td>${s.name}</td>
+        <td>${s.played}</td>
+        <td><strong style="color: var(--accent);">${s.points}</strong></td>
+        <td>${s.restPoints}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div>`;
+    return html;
+  }
+
+  if (phasesInDb.includes('gruppe_a') || phasesInDb.includes('gruppe_b')) {
+    let html = `<div class="groups-container-grid">`;
+    html += buildTableHTML('gruppe_a', 'Gruppe A Rangliste', playerIdsA);
+    html += buildTableHTML('gruppe_b', 'Gruppe B Rangliste', playerIdsB);
+    html += `</div>`;
+    rankingEl.innerHTML = html;
+  } else {
+    rankingEl.innerHTML = buildTableHTML('vorrunde', 'Vorrunde Live-Rangliste');
+  }
+}
+
+// 5. STUFE 1: Vorrunde generieren
+async function generateVorrunde() {
+  const { data: players } = await supabaseClient.from('players').select('*');
+  if (!players || players.length < 2) {
+    alert('Es müssen mindestens 2 Spieler angemeldet sein!');
+    return;
+  }
+
+  if (!confirm(`Vorrunde mit ${players.length} Spielern starten? Es wird ein optimierter Spielplan auf 2 Boards generiert.`)) {
+    return;
+  }
+
+  await supabaseClient.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+  const rawRounds = buildRoundRobin(players);
+  const newMatches = [];
+  let matchCounter = 1;
+
+  rawRounds.forEach(round => {
+    round.forEach(m => {
+      newMatches.push({
+        phase: 'vorrunde',
+        round_number: m.round_number,
+        player1_id: m.player1_id,
+        player2_id: m.player2_id,
+        board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
+        is_completed: false
+      });
+      matchCounter++;
+    });
+  });
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Vorrunde: ' + error.message);
+  } else {
+    alert(`Vorrunde mit ${newMatches.length} Spielen erfolgreich gestartet!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// Helper: Berechnet Rangliste einer Phase
+async function getPhaseStats(phaseName) {
+  const { data: players } = await supabaseClient.from('players').select('*');
+  const { data: phaseMatches } = await supabaseClient.from('matches').select('*').eq('phase', phaseName).eq('is_completed', true);
+
+  const stats = players.map(p => {
+    let points = 0;
+    let restPoints = 0;
+
+    phaseMatches?.forEach(m => {
+      if (m.player1_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p1_rest_points || 0);
+      } else if (m.player2_id === p.id) {
+        if (m.winner_id === p.id) points += 1;
+        else restPoints += (m.p2_rest_points || 0);
+      }
+    });
+
+    return { id: p.id, name: p.name, points, restPoints };
+  });
+
+  return stats.sort((a, b) => b.points - a.points || a.restPoints - b.restPoints);
+}
+
+// 6. STUFE 2: Gruppenphase A & B generieren
+async function generateGruppenphase() {
+  const stats = await getPhaseStats('vorrunde');
+
+  const gruppeA = [];
+  const gruppeB = [];
+
+  stats.forEach((p, index) => {
+    if (index % 2 === 0) gruppeA.push(p);
+    else gruppeB.push(p);
+  });
+
+  if (!confirm(`Gruppenphase A & B starten?\n\nGruppe A (${gruppeA.length} Spieler):\n${gruppeA.map((g,i)=>`${i+1}.${g.name}`).join('\n')}\n\nGruppe B (${gruppeB.length} Spieler):\n${gruppeB.map((g,i)=>`${i+1}.${g.name}`).join('\n')}`)) {
+    return;
+  }
+
+  const roundsA = buildRoundRobin(gruppeA);
+  const roundsB = buildRoundRobin(gruppeB);
+
+  const newMatches = [];
+  let matchCounter = 1;
+
+  roundsA.forEach(round => {
+    round.forEach(m => {
+      newMatches.push({
+        phase: 'gruppe_a',
+        round_number: m.round_number,
+        player1_id: m.player1_id,
+        player2_id: m.player2_id,
+        board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
+        is_completed: false
+      });
+      matchCounter++;
+    });
+  });
+
+  roundsB.forEach(round => {
+    round.forEach(m => {
+      newMatches.push({
+        phase: 'gruppe_b',
+        round_number: m.round_number,
+        player1_id: m.player1_id,
+        player2_id: m.player2_id,
+        board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
+        is_completed: false
+      });
+      matchCounter++;
+    });
+  });
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Gruppenphase: ' + error.message);
+  } else {
+    alert(`Gruppenphase erfolgreich gestartet!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 7. STUFE 3: Zwischenrunde (Überkreuz-Duelle Best of 3)
+async function generateZwischenrunde() {
+  const statsA = await getPhaseStats('gruppe_a');
+  const statsB = await getPhaseStats('gruppe_b');
+
+  if (statsA.length === 0 || statsB.length === 0) {
+    alert('Fehler beim Auslesen der Gruppenergebnisse!');
+    return;
+  }
+
+  if (!confirm(`Zwischenrunde (Überkreuz-Duelle Best of 3) jetzt starten?`)) {
+    return;
+  }
+
+  const crossPairs = [];
+  const minLength = Math.min(statsA.length, statsB.length);
+
+  for (let i = 0; i < minLength; i += 2) {
+    if (statsA[i] && statsB[i + 1]) crossPairs.push({ p1: statsA[i], p2: statsB[i + 1] });
+    if (statsB[i] && statsA[i + 1]) crossPairs.push({ p1: statsB[i], p2: statsA[i + 1] });
+  }
+
+  const newMatches = [];
+  let matchCounter = 1;
+
+  crossPairs.forEach(pair => {
+    newMatches.push({
+      phase: 'zwischenrunde',
+      round_number: 1,
+      player1_id: pair.p1.id,
+      player2_id: pair.p2.id,
+      board: (matchCounter % 2 !== 0) ? 'Board 1' : 'Board 2',
+      is_completed: false
+    });
+    matchCounter++;
+  });
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Zwischenrunde: ' + error.message);
+  } else {
+    alert(`Zwischenrunde mit ${newMatches.length} Überkreuz-Duellen gestartet!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 8. STUFE 4: Finals & Platzierungsspiele generieren
+async function generateFinals() {
+  const { data: zwMatches } = await supabaseClient.from('matches').select('*, p1:player1_id(name), p2:player2_id(name)').eq('phase', 'zwischenrunde').eq('is_completed', true);
+
+  if (!zwMatches || zwMatches.length === 0) {
+    alert('Keine Ergebnisse der Zwischenrunde vorhanden!');
+    return;
+  }
+
+  if (!confirm(`Finals & Platzierungsspiele jetzt starten?`)) {
+    return;
+  }
+
+  const winners = zwMatches.map(m => m.winner_id);
+  const losers = zwMatches.map(m => m.winner_id === m.player1_id ? m.player2_id : m.player1_id);
+
+  const newMatches = [];
+
+  if (winners.length >= 2) {
+    newMatches.push({
+      phase: 'finale',
+      round_number: 1,
+      player1_id: winners[0],
+      player2_id: winners[1],
+      board: 'Board 1',
+      is_completed: false
+    });
+  }
+
+  if (losers.length >= 2) {
+    newMatches.push({
+      phase: 'platz_3',
+      round_number: 1,
+      player1_id: losers[0],
+      player2_id: losers[1],
+      board: 'Board 2',
+      is_completed: false
+    });
+  }
+
+  const { error } = await supabaseClient.from('matches').insert(newMatches);
+  if (error) {
+    alert('Fehler beim Erstellen der Finals: ' + error.message);
+  } else {
+    alert(`Finalspiele erfolgreich generiert!`);
+    loadMatches();
+    loadRanking();
+  }
+}
+
+// 9. Offene und abgeschlossene Matches laden (inklusive Best-of-3 Logik)
+async function loadMatches() {
+  const listEl = document.getElementById('matches-list');
+  if (!listEl) return;
+
+  const { data: matches, error } = await supabaseClient
+    .from('matches')
+    .select('*, p1:player1_id(name), p2:player2_id(name)');
+
+  if (error || !matches) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Fehler beim Laden der Duelle.</p>';
+    return;
+  }
+
+  // FREISCHALTUNGS-LOGIK FÜR ADMIN-BUTTONS
+  const btnGruppe = document.getElementById('btn-gruppe');
+  const btnZwischenrunde = document.getElementById('btn-zwischenrunde');
+  const btnFinals = document.getElementById('btn-finals');
+  const statusHint = document.getElementById('admin-status-hint');
+
+  const vorrundeMatches = matches.filter(m => m.phase === 'vorrunde');
+  const gruppenMatches = matches.filter(m => m.phase === 'gruppe_a' || m.phase === 'gruppe_b');
+  const zwischenrundeMatches = matches.filter(m => m.phase === 'zwischenrunde');
+
+  const vorrundeDone = vorrundeMatches.length > 0 && vorrundeMatches.every(m => m.is_completed);
+  const gruppeDone = gruppenMatches.length > 0 && gruppenMatches.every(m => m.is_completed);
+  const zwischenrundeDone = zwischenrundeMatches.length > 0 && zwischenrundeMatches.every(m => m.is_completed);
+
+  if (btnGruppe) btnGruppe.disabled = !vorrundeDone;
+  if (btnZwischenrunde) btnZwischenrunde.disabled = !gruppeDone;
+  if (btnFinals) btnFinals.disabled = !zwischenrundeDone;
+
+  if (statusHint) {
+    if (!vorrundeDone && vorrundeMatches.length > 0) {
+      const openCount = vorrundeMatches.filter(m => !m.is_completed).length;
+      statusHint.innerText = `Vorrunde läuft noch (${openCount} offene Spiele).`;
+    } else if (vorrundeDone && gruppenMatches.length === 0) {
+      statusHint.innerText = `Vorrunde beendet! Bereit für Schritt 2 (Gruppenphase).`;
+    } else if (!gruppeDone && gruppenMatches.length > 0) {
+      const openCount = gruppenMatches.filter(m => !m.is_completed).length;
+      statusHint.innerText = `Gruppenphase läuft noch (${openCount} offene Spiele).`;
+    } else if (gruppeDone && zwischenrundeMatches.length === 0) {
+      statusHint.innerText = `Gruppenphase beendet! Bereit für Schritt 3 (Zwischenrunde).`;
+    } else if (!zwischenrundeDone && zwischenrundeMatches.length > 0) {
+      statusHint.innerText = `Zwischenrunde läuft noch.`;
+    } else if (zwischenrundeDone) {
+      statusHint.innerText = `Zwischenrunde beendet! Bereit für Schritt 4 (Finals).`;
     }
+  }
 
-    .dart-icon {
-      position: absolute;
-      font-size: 2.2rem;
-      color: #ef4444;
-      filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.6));
-      opacity: 0.65;
-      animation: flyDart 12s linear infinite;
-    }
+  if (matches.length === 0) {
+    listEl.innerHTML = '<p style="color: var(--text-muted);">Aktuell sind keine Spielpaarungen aktiv.</p>';
+    return;
+  }
 
-    .dart-icon:nth-child(1)  { top: 8%;  left: -10%; animation-delay: 0s;   animation-duration: 11s; }
-    .dart-icon:nth-child(2)  { top: 22%; left: -10%; animation-delay: 2s;   animation-duration: 14s; }
-    .dart-icon:nth-child(3)  { top: 38%; left: -10%; animation-delay: 5s;   animation-duration: 10s; }
-    .dart-icon:nth-child(4)  { top: 52%; left: -10%; animation-delay: 1s;   animation-duration: 13s; }
-    .dart-icon:nth-child(5)  { top: 68%; left: -10%; animation-delay: 7s;   animation-duration: 12s; }
-    .dart-icon:nth-child(6)  { top: 84%; left: -10%; animation-delay: 3.5s; animation-duration: 15s; }
-    .dart-icon:nth-child(7)  { top: 14%; left: -10%; animation-delay: 8.5s; animation-duration: 9.5s; }
-    .dart-icon:nth-child(8)  { top: 30%; left: -10%; animation-delay: 4s;   animation-duration: 12.5s; }
-    .dart-icon:nth-child(9)  { top: 44%; left: -10%; animation-delay: 10s;  animation-duration: 11.5s; }
-    .dart-icon:nth-child(10) { top: 60%; left: -10%; animation-delay: 6s;   animation-duration: 13.5s; }
-    .dart-icon:nth-child(11) { top: 76%; left: -10%; animation-delay: 11.5s;animation-duration: 10.5s; }
-    .dart-icon:nth-child(12) { top: 92%; left: -10%; animation-delay: 9s;   animation-duration: 14.5s; }
+  matches.sort((a, b) => (a.is_completed === b.is_completed) ? 0 : a.is_completed ? 1 : -1);
 
-    @keyframes flyDart {
-      0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 0; }
-      10% { opacity: 0.65; }
-      90% { opacity: 0.65; }
-      100% { transform: translateX(120vw) translateY(-25vh) rotate(45deg); opacity: 0; }
-    }
-
-    .container { max-width: 750px; margin: 0 auto; position: relative; z-index: 1; }
+  let html = '';
+  matches.forEach(m => {
+    const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
+    const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
+    const isBestOf3 = ['zwischenrunde', 'finale', 'platz_3'].includes(m.phase);
     
-    .card {
-      background: var(--card);
-      border-radius: 12px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-      border: 1px solid var(--border);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-      backdrop-filter: blur(4px);
+    let phaseTitle = m.phase.toUpperCase();
+    if (m.phase === 'gruppe_a') phaseTitle = 'GRUPPE A';
+    if (m.phase === 'gruppe_b') phaseTitle = 'GRUPPE B';
+    if (m.phase === 'zwischenrunde') phaseTitle = 'ZWISCHENRUNDE (BEST OF 3)';
+    if (m.phase === 'finale') phaseTitle = '🏆 FINALE (BEST OF 3)';
+    if (m.phase === 'platz_3') phaseTitle = '🥉 SPIEL UM PLATZ 3';
+
+    const isBoard2 = (m.board === 'Board 2');
+    const boardNum = isBoard2 ? '2' : '1';
+    const boardClass = isBoard2 ? 'board-2' : 'board-1';
+
+    if (m.is_completed) {
+      const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
+      const scoreDetail = isBestOf3 ? `Legs: ${m.p1_legs || 0} : ${m.p2_legs || 0}` : `Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0}`;
+
+      html += `
+        <div class="match-card completed">
+          <div class="board-badge-container">
+            <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
+            <div class="board-number-overlay ${boardClass}">${boardNum}</div>
+          </div>
+
+          <div class="match-content">
+            <div class="match-header-info">
+              <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+              <button onclick="reopenMatch('${m.id}')" style="width: auto; padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #3d372e; color: #fff;" title="Ergebnis korrigieren">
+                ✏️ Bearbeiten
+              </button>
+            </div>
+
+            <div class="vs-grid">
+              <div class="player-title">${p1Name}</div>
+              <div class="vs-divider">VS</div>
+              <div class="player-title">${p2Name}</div>
+            </div>
+
+            <div style="font-size: 0.9rem; color: var(--accent); margin-top: 0.4rem; text-align: center; background: var(--card); padding: 0.4rem; border-radius: 6px; border: 1px solid var(--border);">
+              🏆 Sieger: <strong>${winnerName}</strong> (${scoreDetail})
+            </div>
+          </div>
+        </div>`;
+    } else {
+      if (isBestOf3) {
+        // BEST-OF-3 EINGABE-LAYOUT (Leg 1, Leg 2, Leg 3)
+        html += `
+          <div class="match-card">
+            <div class="board-badge-container">
+              <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
+              <div class="board-number-overlay ${boardClass}">${boardNum}</div>
+            </div>
+
+            <div class="match-content">
+              <div class="match-header-info">
+                <span>${phaseTitle}</span>
+              </div>
+
+              <div class="vs-grid">
+                <div class="player-title">${p1Name}</div>
+                <div class="vs-divider">VS</div>
+                <div class="player-title">${p2Name}</div>
+              </div>
+
+              <!-- LEG 1 -->
+              <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 1:</div>
+              <div class="match-inputs-grid">
+                <input type="number" id="bo3_l1_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+                <input type="number" id="bo3_l1_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+              </div>
+
+              <!-- LEG 2 -->
+              <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 2:</div>
+              <div class="match-inputs-grid">
+                <input type="number" id="bo3_l2_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+                <input type="number" id="bo3_l2_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+              </div>
+
+              <!-- LEG 3 (Optional) -->
+              <div id="bo3_l3_wrapper_${m.id}">
+                <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 3 (Entscheidungs-Leg):</div>
+                <div class="match-inputs-grid">
+                  <input type="number" id="bo3_l3_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" style="text-align: center;">
+                  <input type="number" id="bo3_l3_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" style="text-align: center;">
+                </div>
+              </div>
+
+              <button onclick="submitBo3Result('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.8rem;">
+                Best-of-3 Ergebnis Speichern
+              </button>
+            </div>
+          </div>`;
+      } else {
+        // STANDARD 1-LEG EINGABE (Vorrunde & Gruppenphase)
+        html += `
+          <div class="match-card">
+            <div class="board-badge-container">
+              <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
+              <div class="board-number-overlay ${boardClass}">${boardNum}</div>
+            </div>
+
+            <div class="match-content">
+              <div class="match-header-info">
+                <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+              </div>
+
+              <div class="vs-grid">
+                <div class="player-title">${p1Name}</div>
+                <div class="vs-divider">VS</div>
+                <div class="player-title">${p2Name}</div>
+              </div>
+
+              <div class="match-inputs-grid">
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p1Name}</label>
+                  <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+                </div>
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p2Name}</label>
+                  <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+                </div>
+              </div>
+
+              <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.6rem;">
+                Ergebnis Speichern
+              </button>
+            </div>
+          </div>`;
+      }
     }
+  });
 
-    h1, h2, h3 { margin-top: 0; }
-    .header-title { 
-      text-align: center; 
-      color: var(--accent); 
-      margin-bottom: 0.5rem;
-      font-size: 1.6rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      text-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
-    }
+  listEl.innerHTML = html;
+}
 
-    .header-actions { text-align: center; margin-bottom: 1.5rem; }
-    .btn-rules {
-      background: transparent;
-      border: 1px solid var(--accent);
-      color: var(--accent);
-      padding: 0.5rem 1rem;
-      border-radius: 20px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      transition: all 0.2s;
-      width: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .btn-rules:hover { background: var(--accent); color: #000; }
+// Prüft live, ob Leg 3 bei 2:0 nicht mehr benötigt wird
+function checkBo3Status(matchId) {
+  const l1p1 = parseInt(document.getElementById(`bo3_l1_p1_${matchId}`)?.value, 10);
+  const l1p2 = parseInt(document.getElementById(`bo3_l1_p2_${matchId}`)?.value, 10);
+  const l2p1 = parseInt(document.getElementById(`bo3_l2_p1_${matchId}`)?.value, 10);
+  const l2p2 = parseInt(document.getElementById(`bo3_l2_p2_${matchId}`)?.value, 10);
 
-    input, button, select {
-      width: 100%;
-      padding: 0.75rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--card-inner);
-      color: #fff;
-      font-size: 1rem;
-      box-sizing: border-box;
-      margin-bottom: 0.5rem;
-    }
+  const l3Wrapper = document.getElementById(`bo3_l3_wrapper_${matchId}`);
+  if (!l3Wrapper) return;
 
-    button {
-      background: var(--accent);
-      color: #000;
-      font-weight: bold;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    button:active { transform: scale(0.98); }
+  let p1Legs = 0;
+  let p2Legs = 0;
 
-    button:disabled {
-      background: #2a2723 !important;
-      color: #665f55 !important;
-      border: 1px solid #3d372e !important;
-      cursor: not-allowed !important;
-      transform: none !important;
-      opacity: 0.6;
-    }
+  if (l1p1 === 0) p1Legs++; else if (l1p2 === 0) p2Legs++;
+  if (l2p1 === 0) p1Legs++; else if (l2p2 === 0) p2Legs++;
 
-    .table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-    .table th, .table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
-    .table th { color: var(--text-muted); font-size: 0.8rem; }
+  if (p1Legs === 2 || p2Legs === 2) {
+    l3Wrapper.style.opacity = '0.3';
+    l3Wrapper.style.pointerEvents = 'none';
+  } else {
+    l3Wrapper.style.opacity = '1';
+    l3Wrapper.style.pointerEvents = 'auto';
+  }
+}
 
-    /* Nebeneinander-Grid für Gruppen A & B */
-    .groups-container-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1rem;
-    }
+// Speichert ein Best-of-3 Ergebnis
+async function submitBo3Result(matchId, p1Id, p2Id) {
+  const l1p1 = parseInt(document.getElementById(`bo3_l1_p1_${matchId}`)?.value, 10);
+  const l1p2 = parseInt(document.getElementById(`bo3_l1_p2_${matchId}`)?.value, 10);
+  const l2p1 = parseInt(document.getElementById(`bo3_l2_p1_${matchId}`)?.value, 10);
+  const l2p2 = parseInt(document.getElementById(`bo3_l2_p2_${matchId}`)?.value, 10);
+  const l3p1 = parseInt(document.getElementById(`bo3_l3_p1_${matchId}`)?.value, 10);
+  const l3p2 = parseInt(document.getElementById(`bo3_l3_p2_${matchId}`)?.value, 10);
 
-    .group-box {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.75rem;
-    }
+  let p1Legs = 0;
+  let p2Legs = 0;
 
-    .player-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-    .player-chip {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      padding: 0.4rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.9rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .player-chip .remove-btn { color: #ef4444; cursor: pointer; font-weight: bold; font-size: 1.1rem; line-height: 1; }
+  if (l1p1 === 0) p1Legs++; else if (l1p2 === 0) p2Legs++;
+  if (l2p1 === 0) p1Legs++; else if (l2p2 === 0) p2Legs++;
 
-    .match-card {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-      display: grid;
-      grid-template-columns: 85px 1fr;
-      gap: 1rem;
-      align-items: center;
-    }
+  // Falls es 1:1 steht, muss Leg 3 ausgewertet werden
+  if (p1Legs === 1 && p2Legs === 1) {
+    if (l3p1 === 0) p1Legs++; else if (l3p2 === 0) p2Legs++;
+  }
 
-    .match-card.completed {
-      opacity: 0.7;
-      border-color: var(--border);
-    }
+  if (p1Legs < 2 && p2Legs < 2) {
+    alert('Bitte trage die Ergebnisse so ein, dass ein Spieler 2 Legs gewinnt!');
+    return;
+  }
 
-    .board-badge-container {
-      position: relative;
-      width: 85px;
-      height: 85px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
+  const winnerId = p1Legs === 2 ? p1Id : p2Id;
 
-    .real-dartboard-img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6));
-    }
+  const { error } = await supabaseClient.from('matches').update({
+    winner_id: winnerId,
+    p1_legs: p1Legs,
+    p2_legs: p2Legs,
+    is_completed: true
+  }).eq('id', matchId);
 
-    .board-number-overlay {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 2.3rem;
-      font-weight: 900;
-      line-height: 1;
-      text-shadow: 
-        -2px -2px 0 #000,  
-         2px -2px 0 #000,
-        -2px  2px 0 #000,
-         2px  2px 0 #000,
-         0 0 10px rgba(0,0,0,0.9);
-      pointer-events: none;
-      z-index: 2;
-    }
+  if (error) {
+    alert('Fehler beim Speichern: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
 
-    .board-number-overlay.board-1 { color: var(--board1-color); }
-    .board-number-overlay.board-2 { color: var(--board2-color); }
+// 10. Ergebnis 1-Leg eintragen
+async function submitResult(matchId, p1Id, p2Id) {
+  const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
+  const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
 
-    .match-content { width: 100%; }
+  const p1Rest = parseInt(p1RestInput.value, 10);
+  const p2Rest = parseInt(p2RestInput.value, 10);
 
-    .match-header-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
+  if (isNaN(p1Rest) || isNaN(p2Rest)) {
+    alert('Bitte gib für beide Spieler die verbliebenen Restpunkte ein (Gewinner = 0)!');
+    return;
+  }
 
-    .vs-grid {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      align-items: center;
-      text-align: center;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
+  if (p1Rest !== 0 && p2Rest !== 0) {
+    alert('Der Gewinner muss genau 0 Restpunkte haben!');
+    return;
+  }
 
-    .player-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #fff;
-      word-break: break-word;
-    }
+  if (p1Rest === 0 && p2Rest === 0) {
+    alert('Es kann nur einen Gewinner mit 0 Restpunkten geben!');
+    return;
+  }
 
-    .vs-divider {
-      font-size: 1rem;
-      font-weight: 900;
-      color: var(--accent);
-      padding: 0 0.2rem;
-    }
+  const winnerId = p1Rest === 0 ? p1Id : p2Id;
 
-    .match-inputs-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.75rem;
-    }
+  const { error } = await supabaseClient.from('matches').update({
+    winner_id: winnerId,
+    p1_rest_points: p1Rest,
+    p2_rest_points: p2Rest,
+    is_completed: true
+  }).eq('id', matchId);
 
-    .admin-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 0.6rem;
-    }
+  if (error) {
+    alert('Fehler beim Speichern: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
 
-    .modal-overlay {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(6px);
-      display: none; justify-content: center; align-items: center; z-index: 100;
-      padding: 1rem; box-sizing: border-box;
-    }
-    .modal-content {
-      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-      max-width: 550px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 1.5rem;
-      box-shadow: 0 12px 32px rgba(0,0,0,0.6); position: relative;
-    }
-    .modal-close { position: absolute; top: 1rem; right: 1rem; background: transparent; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; width: auto; margin: 0; padding: 0; }
-    .rules-section { margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; }
-    .rules-section:last-child { border-bottom: none; }
-    .rules-section h4 { margin: 0 0 0.4rem 0; color: var(--accent); }
-    .rules-section p, .rules-section ul { margin: 0; font-size: 0.92rem; color: #cbd5e1; line-height: 1.4; }
-    .rules-section ul { padding-left: 1.2rem; }
-  </style>
-</head>
-<body>
+// 11. Match zur Korrektur freischalten
+async function reopenMatch(matchId) {
+  const { error } = await supabaseClient.from('matches').update({
+    is_completed: false,
+    winner_id: null
+  }).eq('id', matchId);
 
-  <!-- Animierte rote Darts im Hintergrund -->
-  <div class="dart-bg">
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-    <div class="dart-icon">🎯</div>
-  </div>
+  if (error) {
+    alert('Fehler beim Freischalten: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
 
-  <div class="container">
-    <h1 class="header-title">🎯 Kalkopen World Darts Championship 2027</h1>
-    <div class="header-actions">
-      <button class="btn-rules" onclick="toggleRules(true)">📖 Spielregeln anzeigen</button>
-    </div>
-    
-    <!-- Multi-Spieler Registrierung -->
-    <div id="auth-section" class="card">
-      <h2>Spieler anmelden</h2>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: -0.5rem; margin-bottom: 0.75rem;">
-        Du kannst hier nacheinander mehrere Personen eintragen.
-      </p>
-      <input type="text" id="player-name-input" placeholder="Name des Teilnehmers eingeben">
-      <button onclick="registerPlayer()">Spieler zur Liste hinzufügen</button>
-    </div>
-
-    <!-- Angemeldete Teilnehmer -->
-    <div id="registered-players-section" class="card">
-      <h2>👥 Angemeldete Teilnehmer (<span id="player-count">0</span>)</h2>
-      <div id="registered-players-list" class="player-list">Lade Teilnehmer...</div>
-    </div>
-
-    <!-- Admin / Steuerung -->
-    <div id="admin-section" class="card">
-      <h2>Turnier-Steuerung</h2>
-      <div class="admin-grid">
-        <button id="btn-vorrunde" onclick="generateVorrunde()">1. Vorrunde starten (301 Single Out)</button>
-        <button id="btn-gruppe" onclick="generateGruppenphase()" style="background: #3b82f6; color: #fff;" disabled>2. Gruppenphase A & B generieren</button>
-        <button id="btn-zwischenrunde" onclick="generateZwischenrunde()" style="background: #8b5cf6; color: #fff;" disabled>3. Zwischenrunde generieren (Best of 3)</button>
-        <button id="btn-finals" onclick="generateFinals()" style="background: #ec4899; color: #fff;" disabled>4. Finals & Platzierungsspiele generieren</button>
-      </div>
-      <p id="admin-status-hint" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem; margin-bottom: 0; text-align: center;">
-        Schließe alle Spiele der aktuellen Phase ab, um die nächste Phase freizuschalten.
-      </p>
-    </div>
-
-    <!-- Live Rangliste -->
-    <div id="ranking-section" class="card">
-      <h2>Live-Rangliste</h2>
-      <div id="ranking-table">Lade Daten...</div>
-    </div>
-
-    <!-- Offene Duelle -->
-    <div id="matches-section" class="card">
-      <h2>Aktuelle Spielpaarungen</h2>
-      <div id="matches-list">Lade Duelle...</div>
-    </div>
-  </div>
-
-  <!-- Pop-up Fenster für die Spielregeln -->
-  <div id="rules-modal" class="modal-overlay" onclick="if(event.target === this) toggleRules(false)">
-    <div class="modal-content">
-      <button class="modal-close" onclick="toggleRules(false)">&times;</button>
-      <h2 style="color: var(--accent); margin-bottom: 1rem;">🎯 Turnierregeln & Modus</h2>
-      
-      <div class="rules-section">
-        <h4>1. Vorrunde (Setzphase)</h4>
-        <p>Jeder spielt gegen jeden im Modus <strong>301 Single Out (1 Leg)</strong>. Der Gewinner erhält 1 Punkt. Der Verlierer trägt seine Restpunkte ein. Bei Punktgleichheit entscheidet die niedrigere Gesamtrestpunktzahl.</p>
-      </div>
-
-      <div class="rules-section">
-        <h4>2. Gruppenphase (Gruppe A & B)</h4>
-        <p>Nach der Vorrunde werden alle Teilnehmer abwechselnd nach Platzierung aufgeteilt (Platz 1 → Gruppe A, Platz 2 → Gruppe B, Platz 3 → Gruppe A usw.). Es wird erneut Jeder gegen Jeden in den Gruppen gespielt (301 Single Out, 1 Leg).</p>
-      </div>
-
-      <div class="rules-section">
-        <h4>3. Zwischenrunde (Überkreuz-Duelle)</h4>
-        <p>Gespielt wird im Modus <strong>301 Single Out – Best of 3</strong>:</p>
-        <ul>
-          <li>Sieger Gruppe A vs. Zweiter Gruppe B</li>
-          <li>Sieger Gruppe B vs. Zweiter Gruppe A</li>
-          <li>Dritter A vs. Vierter B & Dritter B vs. Vierter A</li>
-          <li>Fünfter A vs. Sechster B & Fünfter B vs. Sechster A</li>
-        </ul>
-      </div>
-
-      <div class="rules-section">
-        <h4>4. Finals & Platzierungsspiele</h4>
-        <ul>
-          <li><strong>FINALE:</strong> Gewinner der Halbfinals im Modus <strong>301 Double Out – Best of 3</strong>.</li>
-          <li><strong>Platz 3, 5, 7, 9...:</strong> Alle weiteren Duelle im Modus <strong>301 Single Out – Best of 3</strong>.</li>
-        </ul>
-      </div>
-
-      <button style="margin-top: 1rem;" onclick="toggleRules(false)">Schließen</button>
-    </div>
-  </div>
-
-  <script>
-    function toggleRules(show) {
-      document.getElementById('rules-modal').style.display = show ? 'flex' : 'none';
-    }
-  </script>
-  <script src="app.js?v=15"></script>
-</body>
-</html>
+// Initialer Aufruf beim Seitenstart
+document.addEventListener('DOMContentLoaded', () => {
+  loadRegisteredPlayers();
+  loadRanking();
+  loadMatches();
+});
