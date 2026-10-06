@@ -143,7 +143,6 @@ async function loadRanking() {
 
   const phasesInDb = [...new Set(matches?.map(m => m.phase) || [])];
 
-  // Vorrunden-Platzierung ermitteln für die Gruppen-Zuordnung
   const vorrundeMatches = matches?.filter(m => m.phase === 'vorrunde') || [];
   const vrStats = players.map(p => {
     let points = 0;
@@ -361,7 +360,7 @@ async function generateGruppenphase() {
   }
 }
 
-// 7. STUFE 3: Zwischenrunde (Überkreuz-Duelle) generieren
+// 7. STUFE 3: Zwischenrunde (Überkreuz-Duelle Best of 3)
 async function generateZwischenrunde() {
   const statsA = await getPhaseStats('gruppe_a');
   const statsB = await getPhaseStats('gruppe_b');
@@ -458,7 +457,7 @@ async function generateFinals() {
   }
 }
 
-// 9. Offene und abgeschlossene Matches laden + Status-Prüfung für Admin-Buttons
+// 9. Offene und abgeschlossene Matches laden (inklusive Best-of-3 Logik)
 async function loadMatches() {
   const listEl = document.getElementById('matches-list');
   if (!listEl) return;
@@ -519,6 +518,7 @@ async function loadMatches() {
   matches.forEach(m => {
     const p1Name = m.p1 ? m.p1.name : 'Spieler 1';
     const p2Name = m.p2 ? m.p2.name : 'Spieler 2';
+    const isBestOf3 = ['zwischenrunde', 'finale', 'platz_3'].includes(m.phase);
     
     let phaseTitle = m.phase.toUpperCase();
     if (m.phase === 'gruppe_a') phaseTitle = 'GRUPPE A';
@@ -533,6 +533,8 @@ async function loadMatches() {
 
     if (m.is_completed) {
       const winnerName = m.winner_id === m.player1_id ? p1Name : p2Name;
+      const scoreDetail = isBestOf3 ? `Legs: ${m.p1_legs || 0} : ${m.p2_legs || 0}` : `Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0}`;
+
       html += `
         <div class="match-card completed">
           <div class="board-badge-container">
@@ -555,52 +557,170 @@ async function loadMatches() {
             </div>
 
             <div style="font-size: 0.9rem; color: var(--accent); margin-top: 0.4rem; text-align: center; background: var(--card); padding: 0.4rem; border-radius: 6px; border: 1px solid var(--border);">
-              🏆 Sieger: <strong>${winnerName}</strong> (Restpunkte: ${m.p1_rest_points || 0} : ${m.p2_rest_points || 0})
+              🏆 Sieger: <strong>${winnerName}</strong> (${scoreDetail})
             </div>
           </div>
         </div>`;
     } else {
-      html += `
-        <div class="match-card">
-          <div class="board-badge-container">
-            <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
-            <div class="board-number-overlay ${boardClass}">${boardNum}</div>
-          </div>
-
-          <div class="match-content">
-            <div class="match-header-info">
-              <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+      if (isBestOf3) {
+        // BEST-OF-3 EINGABE-LAYOUT (Leg 1, Leg 2, Leg 3)
+        html += `
+          <div class="match-card">
+            <div class="board-badge-container">
+              <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
+              <div class="board-number-overlay ${boardClass}">${boardNum}</div>
             </div>
 
-            <div class="vs-grid">
-              <div class="player-title">${p1Name}</div>
-              <div class="vs-divider">VS</div>
-              <div class="player-title">${p2Name}</div>
-            </div>
-
-            <div class="match-inputs-grid">
-              <div>
-                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p1Name}</label>
-                <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+            <div class="match-content">
+              <div class="match-header-info">
+                <span>${phaseTitle}</span>
               </div>
-              <div>
-                <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p2Name}</label>
-                <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+
+              <div class="vs-grid">
+                <div class="player-title">${p1Name}</div>
+                <div class="vs-divider">VS</div>
+                <div class="player-title">${p2Name}</div>
               </div>
+
+              <!-- LEG 1 -->
+              <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 1:</div>
+              <div class="match-inputs-grid">
+                <input type="number" id="bo3_l1_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+                <input type="number" id="bo3_l1_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+              </div>
+
+              <!-- LEG 2 -->
+              <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 2:</div>
+              <div class="match-inputs-grid">
+                <input type="number" id="bo3_l2_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+                <input type="number" id="bo3_l2_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" oninput="checkBo3Status('${m.id}')" style="text-align: center;">
+              </div>
+
+              <!-- LEG 3 (Optional) -->
+              <div id="bo3_l3_wrapper_${m.id}">
+                <div style="font-size: 0.8rem; color: var(--accent); margin-top: 0.4rem; font-weight: bold;">Leg 3 (Entscheidungs-Leg):</div>
+                <div class="match-inputs-grid">
+                  <input type="number" id="bo3_l3_p1_${m.id}" placeholder="Rest ${p1Name}" min="0" style="text-align: center;">
+                  <input type="number" id="bo3_l3_p2_${m.id}" placeholder="Rest ${p2Name}" min="0" style="text-align: center;">
+                </div>
+              </div>
+
+              <button onclick="submitBo3Result('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.8rem;">
+                Best-of-3 Ergebnis Speichern
+              </button>
+            </div>
+          </div>`;
+      } else {
+        // STANDARD 1-LEG EINGABE (Vorrunde & Gruppenphase)
+        html += `
+          <div class="match-card">
+            <div class="board-badge-container">
+              <img src="Dart_board.png" class="real-dartboard-img" alt="Dartboard">
+              <div class="board-number-overlay ${boardClass}">${boardNum}</div>
             </div>
 
-            <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.6rem;">
-              Ergebnis Speichern
-            </button>
-          </div>
-        </div>`;
+            <div class="match-content">
+              <div class="match-header-info">
+                <span>${phaseTitle} — Runde ${m.round_number || 1}</span>
+              </div>
+
+              <div class="vs-grid">
+                <div class="player-title">${p1Name}</div>
+                <div class="vs-divider">VS</div>
+                <div class="player-title">${p2Name}</div>
+              </div>
+
+              <div class="match-inputs-grid">
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p1Name}</label>
+                  <input type="number" id="rest_p1_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+                </div>
+                <div>
+                  <label style="font-size: 0.75rem; color: var(--text-muted); display: block; text-align: center; margin-bottom: 0.2rem;">Restpunkte ${p2Name}</label>
+                  <input type="number" id="rest_p2_${m.id}" placeholder="0 (Gewinner = 0)" min="0" style="text-align: center; font-weight: bold;">
+                </div>
+              </div>
+
+              <button onclick="submitResult('${m.id}', '${m.player1_id}', '${m.player2_id}')" style="margin-top: 0.6rem;">
+                Ergebnis Speichern
+              </button>
+            </div>
+          </div>`;
+      }
     }
   });
 
   listEl.innerHTML = html;
 }
 
-// 10. Ergebnis eintragen
+// Prüft live, ob Leg 3 bei 2:0 nicht mehr benötigt wird
+function checkBo3Status(matchId) {
+  const l1p1 = parseInt(document.getElementById(`bo3_l1_p1_${matchId}`)?.value, 10);
+  const l1p2 = parseInt(document.getElementById(`bo3_l1_p2_${matchId}`)?.value, 10);
+  const l2p1 = parseInt(document.getElementById(`bo3_l2_p1_${matchId}`)?.value, 10);
+  const l2p2 = parseInt(document.getElementById(`bo3_l2_p2_${matchId}`)?.value, 10);
+
+  const l3Wrapper = document.getElementById(`bo3_l3_wrapper_${matchId}`);
+  if (!l3Wrapper) return;
+
+  let p1Legs = 0;
+  let p2Legs = 0;
+
+  if (l1p1 === 0) p1Legs++; else if (l1p2 === 0) p2Legs++;
+  if (l2p1 === 0) p1Legs++; else if (l2p2 === 0) p2Legs++;
+
+  if (p1Legs === 2 || p2Legs === 2) {
+    l3Wrapper.style.opacity = '0.3';
+    l3Wrapper.style.pointerEvents = 'none';
+  } else {
+    l3Wrapper.style.opacity = '1';
+    l3Wrapper.style.pointerEvents = 'auto';
+  }
+}
+
+// Speichert ein Best-of-3 Ergebnis
+async function submitBo3Result(matchId, p1Id, p2Id) {
+  const l1p1 = parseInt(document.getElementById(`bo3_l1_p1_${matchId}`)?.value, 10);
+  const l1p2 = parseInt(document.getElementById(`bo3_l1_p2_${matchId}`)?.value, 10);
+  const l2p1 = parseInt(document.getElementById(`bo3_l2_p1_${matchId}`)?.value, 10);
+  const l2p2 = parseInt(document.getElementById(`bo3_l2_p2_${matchId}`)?.value, 10);
+  const l3p1 = parseInt(document.getElementById(`bo3_l3_p1_${matchId}`)?.value, 10);
+  const l3p2 = parseInt(document.getElementById(`bo3_l3_p2_${matchId}`)?.value, 10);
+
+  let p1Legs = 0;
+  let p2Legs = 0;
+
+  if (l1p1 === 0) p1Legs++; else if (l1p2 === 0) p2Legs++;
+  if (l2p1 === 0) p1Legs++; else if (l2p2 === 0) p2Legs++;
+
+  // Falls es 1:1 steht, muss Leg 3 ausgewertet werden
+  if (p1Legs === 1 && p2Legs === 1) {
+    if (l3p1 === 0) p1Legs++; else if (l3p2 === 0) p2Legs++;
+  }
+
+  if (p1Legs < 2 && p2Legs < 2) {
+    alert('Bitte trage die Ergebnisse so ein, dass ein Spieler 2 Legs gewinnt!');
+    return;
+  }
+
+  const winnerId = p1Legs === 2 ? p1Id : p2Id;
+
+  const { error } = await supabaseClient.from('matches').update({
+    winner_id: winnerId,
+    p1_legs: p1Legs,
+    p2_legs: p2Legs,
+    is_completed: true
+  }).eq('id', matchId);
+
+  if (error) {
+    alert('Fehler beim Speichern: ' + error.message);
+  } else {
+    loadRanking();
+    loadMatches();
+  }
+}
+
+// 10. Ergebnis 1-Leg eintragen
 async function submitResult(matchId, p1Id, p2Id) {
   const p1RestInput = document.getElementById(`rest_p1_${matchId}`);
   const p2RestInput = document.getElementById(`rest_p2_${matchId}`);
